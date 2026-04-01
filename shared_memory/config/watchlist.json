@@ -1,24 +1,38 @@
 {
-  "updated": "2025-01-01T00:00:00Z",
+  "updated": "2026-03-31T00:00:00Z",
   "sectors": {
-    "big_tech": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
-    "semiconductors": ["AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL"],
-    "software_cloud": ["CRM", "NFLX", "ORCL", "PLTR", "SNOW", "SHOP"],
-    "fintech_crypto": ["COIN", "SOFI", "SQ", "HOOD"],
-    "healthcare_biotech": ["LLY", "UNH", "MRNA"],
-    "energy": ["XOM", "CVX"],
-    "consumer": ["NKE", "SBUX", "DIS"],
-    "etfs": ["SPY", "QQQ", "IWM", "DIA", "ARKK"]
+    "mega_cap": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "JPM", "V"],
+    "tech": ["CRM", "ORCL", "PLTR", "SNOW", "SHOP", "ADBE", "INTU", "NOW", "PANW", "CRWD"],
+    "semiconductors": ["AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL", "LRCX", "KLAC", "AMAT", "TXN"],
+    "streaming_media": ["NFLX", "DIS", "CMCSA", "WBD", "PARA"],
+    "fintech_crypto": ["COIN", "SOFI", "SQ", "HOOD", "PYPL", "MA", "AXP", "GS", "MS", "C"],
+    "healthcare": ["LLY", "UNH", "JNJ", "PFE", "MRNA", "ABBV", "TMO", "ABT", "BMY", "AMGN"],
+    "energy": ["XOM", "CVX", "COP", "SLB", "EOG"],
+    "consumer": ["NKE", "SBUX", "MCD", "KO", "PEP", "PG", "COST", "WMT", "HD", "LOW"],
+    "industrials": ["CAT", "BA", "HON", "UPS", "RTX", "GE", "LMT", "DE"],
+    "ev_clean": ["RIVN", "LCID", "ENPH", "FSLR", "NEE"],
+    "reits_finance": ["AMT", "PLD", "BLK", "SCHW", "ICE"],
+    "etfs": ["SPY", "QQQ", "IWM", "DIA", "ARKK", "XLF", "XLE", "XLK", "XLV", "SOXX"]
   },
-  "etf_tickers": ["SPY", "QQQ", "IWM", "DIA", "ARKK"],
+  "etf_tickers": ["SPY", "QQQ", "IWM", "DIA", "ARKK", "XLF", "XLE", "XLK", "XLV", "SOXX"],
   "all_tickers": [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
-    "AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL",
-    "CRM", "NFLX", "ORCL", "PLTR", "SNOW", "SHOP",
-    "COIN", "SOFI", "SQ", "HOOD",
-    "LLY", "UNH", "MRNA",
-    "XOM", "CVX",
-    "NKE", "SBUX", "DIS",
-    "SPY", "QQQ", "IWM", "DIA", "ARKK"
-  ]
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "JPM", "V",
+    "CRM", "ORCL", "PLTR", "SNOW", "SHOP", "ADBE", "INTU", "NOW", "PANW", "CRWD",
+    "AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL", "LRCX", "KLAC", "AMAT", "TXN",
+    "NFLX", "DIS", "CMCSA", "WBD", "PARA",
+    "COIN", "SOFI", "SQ", "HOOD", "PYPL", "MA", "AXP", "GS", "MS", "C",
+    "LLY", "UNH", "JNJ", "PFE", "MRNA", "ABBV", "TMO", "ABT", "BMY", "AMGN",
+    "XOM", "CVX", "COP", "SLB", "EOG",
+    "NKE", "SBUX", "MCD", "KO", "PEP", "PG", "COST", "WMT", "HD", "LOW",
+    "CAT", "BA", "HON", "UPS", "RTX", "GE", "LMT", "DE",
+    "RIVN", "LCID", "ENPH", "FSLR", "NEE",
+    "AMT", "PLD", "BLK", "SCHW", "ICE",
+    "SPY", "QQQ", "IWM", "DIA", "ARKK", "XLF", "XLE", "XLK", "XLV", "SOXX"
+  ],
+  "dynamic_movers": {
+    "enabled": true,
+    "max_movers": 100,
+    "min_change_pct": 2.0,
+    "source": "yfinance_screener"
+  }
 }
