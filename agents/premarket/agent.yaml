@@ -1,0 +1,38 @@
+agent:
+  id: premarket
+  name: "Pre-Market Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - premarket_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      bullish_threshold: 0.005
+      vix_bearish_threshold: 25
+      bias_adjustment: 0.5
+      max_gap_adjustment: 2.0
+      gap_threshold: 0.01
+    futures_symbols:
+      - ES=F
+      - NQ=F
+      - YM=F
+      - RTY=F
+      - CL=F
+      - GC=F
+      - ^VIX
+      - DX-Y.NYB
+      - ^TNX
+    global_indices:
+      - ^N225
+      - ^HSI
+      - ^FTSE
+      - ^GDAXI
+      - 000001.SS
+    api_timeouts:
+      yfinance: 10

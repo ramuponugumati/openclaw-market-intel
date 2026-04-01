@@ -1,0 +1,24 @@
+agent:
+  id: sentiment
+  name: "Sentiment Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - sentiment_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      positive_sentiment_threshold: 0.70
+      min_mentions: 10
+      positive_sentiment_bonus: 2.0
+      analyst_buy_threshold: 0.70
+      analyst_buy_bonus: 1.5
+      analyst_sell_threshold: 0.30
+      analyst_sell_penalty: 1.5
+    api_timeouts:
+      finnhub: 10

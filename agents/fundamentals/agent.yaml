@@ -1,0 +1,21 @@
+agent:
+  id: fundamentals
+  name: "Fundamentals Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - fundamentals_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      earnings_growth_threshold: 0.20
+      earnings_growth_bonus: 2.0
+      analyst_upside_threshold: 0.15
+      analyst_upside_bonus: 1.0
+    api_timeouts:
+      yfinance: 10

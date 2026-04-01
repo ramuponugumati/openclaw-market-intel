@@ -1,0 +1,14 @@
+{
+  "updated": "2025-01-01T00:00:00Z",
+  "weights": {
+    "fundamentals": 0.18,
+    "sentiment": 0.15,
+    "macro": 0.10,
+    "news": 0.15,
+    "technical": 0.15,
+    "premarket": 0.12,
+    "congress": 0.15
+  },
+  "accuracy_data": {},
+  "days_evaluated": 0
+}

@@ -1,0 +1,13 @@
+{
+  "current_mode": "day_trade",
+  "consecutive_days_at_threshold": 0,
+  "accuracy_history": [],
+  "mode_transitions": [
+    {
+      "from": "day_trade",
+      "to": "day_trade",
+      "date": "2025-01-01",
+      "reason": "system_start"
+    }
+  ]
+}

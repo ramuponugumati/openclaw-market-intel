@@ -1,0 +1,26 @@
+agent:
+  id: options_chain
+  name: "Options Chain Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - options_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      moneyness_weight: 0.30
+      open_interest_weight: 0.25
+      volume_weight: 0.25
+      spread_weight: 0.20
+    budget:
+      total: 1000
+      max_per_contract: 300
+    expiry:
+      min_days: 1
+      max_days: 7
+    api_timeouts:
+      yfinance: 10

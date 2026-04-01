@@ -1,0 +1,28 @@
+agent:
+  id: congress
+  name: "Congressional Trades Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - congress_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      priority_buy_bonus: 2.0
+      non_priority_buy_bonus: 0.5
+      max_extra_tickers: 5
+    lookback_days: 14
+    priority_politicians:
+      - "Nancy Pelosi"
+      - "Dan Crenshaw"
+      - "Tommy Tuberville"
+      - "Marjorie Taylor Greene"
+      - "Josh Gottheimer"
+    api_timeouts:
+      quiver: 15
+      capitol_trades: 15

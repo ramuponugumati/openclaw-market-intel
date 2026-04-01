@@ -1,0 +1,24 @@
+{
+  "updated": "2025-01-01T00:00:00Z",
+  "sectors": {
+    "big_tech": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
+    "semiconductors": ["AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL"],
+    "software_cloud": ["CRM", "NFLX", "ORCL", "PLTR", "SNOW", "SHOP"],
+    "fintech_crypto": ["COIN", "SOFI", "SQ", "HOOD"],
+    "healthcare_biotech": ["LLY", "UNH", "MRNA"],
+    "energy": ["XOM", "CVX"],
+    "consumer": ["NKE", "SBUX", "DIS"],
+    "etfs": ["SPY", "QQQ", "IWM", "DIA", "ARKK"]
+  },
+  "etf_tickers": ["SPY", "QQQ", "IWM", "DIA", "ARKK"],
+  "all_tickers": [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+    "AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL",
+    "CRM", "NFLX", "ORCL", "PLTR", "SNOW", "SHOP",
+    "COIN", "SOFI", "SQ", "HOOD",
+    "LLY", "UNH", "MRNA",
+    "XOM", "CVX",
+    "NKE", "SBUX", "DIS",
+    "SPY", "QQQ", "IWM", "DIA", "ARKK"
+  ]
+}

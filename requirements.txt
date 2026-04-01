@@ -1,0 +1,10 @@
+yfinance
+requests
+schedule
+fredapi
+beautifulsoup4
+python-dotenv
+numpy
+pandas
+python-telegram-bot
+alpaca-py

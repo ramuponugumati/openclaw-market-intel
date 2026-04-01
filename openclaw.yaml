@@ -1,0 +1,18 @@
+fleet:
+  name: market-intel
+  orchestrator: orchestrator
+  agents:
+    - fundamentals
+    - sentiment
+    - macro
+    - news
+    - technical
+    - options_chain
+    - premarket
+    - congress
+  shared_memory:
+    type: filesystem
+    path: /mnt/efs/shared_memory
+  schedule:
+    morning_analysis: "cron(30 13 ? * MON-FRI *)"  # 5:30 AM PST = 13:30 UTC
+    eod_recap: "cron(15 21 ? * MON-FRI *)"          # 1:15 PM PST = 21:15 UTC

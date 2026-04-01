@@ -1,0 +1,27 @@
+agent:
+  id: macro
+  name: "Macro/Fed Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - macro_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      yield_change_threshold: 0.05
+      yield_bearish_penalty: 1.5
+      vix_threshold: 25
+    fred_series:
+      - GS10
+      - GS2
+      - CPIAUCSL
+      - UNRATE
+      - FEDFUNDS
+      - VIXCLS
+    api_timeouts:
+      fred: 10

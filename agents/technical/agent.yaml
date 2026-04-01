@@ -1,0 +1,28 @@
+agent:
+  id: technical
+  name: "Technical Analysis Agent"
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  skills:
+    - technical_analysis
+  memory:
+    type: local
+    path: ./memory
+  config:
+    watchlist_source: shared
+    scoring:
+      base_score: 5.0
+      rsi_period: 14
+      sma_short: 20
+      sma_long: 50
+      volume_short: 5
+      volume_long: 20
+      rsi_oversold: 30
+      rsi_overbought: 70
+      rsi_bonus: 2.0
+      golden_cross_bonus: 1.5
+      min_history_days: 20
+    lookback_months: 3
+    api_timeouts:
+      yfinance: 10

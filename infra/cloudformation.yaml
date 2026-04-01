@@ -1,0 +1,894 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  OpenClaw Market Intel — Full infrastructure stack.
+  VPC networking, EFS shared storage, Fargate service (Telegram bot + OpenClaw Gateway),
+  Lambda functions (morning analysis + EOD recap), EventBridge cron rules,
+  Secrets Manager, CloudWatch log groups, and least-privilege IAM roles.
+  Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: openclaw-market-intel
+    Description: Name prefix for all resources
+
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: CIDR block for the VPC
+
+  PrivateSubnetACidr:
+    Type: String
+    Default: "10.0.1.0/24"
+    Description: CIDR block for private subnet A
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: "10.0.2.0/24"
+    Description: CIDR block for private subnet B
+
+  PublicSubnetCidr:
+    Type: String
+    Default: "10.0.100.0/24"
+    Description: CIDR block for the public subnet (NAT Gateway)
+
+  FargateCpu:
+    Type: Number
+    Default: 256
+    Description: Fargate task CPU units
+
+  FargateMemory:
+    Type: Number
+    Default: 512
+    Description: Fargate task memory in MB
+
+  FargateDesiredCount:
+    Type: Number
+    Default: 1
+    Description: Desired number of Fargate tasks (auto-restart on crash)
+
+  LambdaMemory:
+    Type: Number
+    Default: 1024
+    Description: Lambda function memory in MB
+
+  LambdaTimeout:
+    Type: Number
+    Default: 300
+    Description: Lambda function timeout in seconds
+
+  ContainerImageUri:
+    Type: String
+    Default: ""
+    Description: >
+      Full ECR image URI for the Fargate container.
+      Leave empty on first deploy; update after pushing the image.
+
+  EfsMountPath:
+    Type: String
+    Default: /mnt/efs/shared_memory
+    Description: EFS mount path inside Fargate containers
+
+  LambdaMountPath:
+    Type: String
+    Default: /mnt/shared_memory
+    Description: EFS mount path inside Lambda (must match /mnt/[a-zA-Z0-9-_.]+)
+
+  # Secrets — provide values at deploy time (never committed to source)
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Anthropic API key
+
+  FinnhubApiKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Finnhub API key
+
+  FredApiKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: FRED API key
+
+  AlpacaApiKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Alpaca API key
+
+  AlpacaSecretKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Alpaca secret key
+
+  TelegramBotToken:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Telegram bot token
+
+  QuiverApiKey:
+    Type: String
+    NoEcho: true
+    Default: "CHANGE_ME"
+    Description: Quiver Quantitative API key
+
+  AlpacaMode:
+    Type: String
+    Default: paper
+    AllowedValues:
+      - paper
+      - live
+    Description: Alpaca trading mode
+
+  AllowedUserIds:
+    Type: String
+    Default: ""
+    Description: Comma-separated Telegram user IDs allowed to interact with the bot
+
+  TelegramChatId:
+    Type: String
+    Default: ""
+    Description: Telegram chat ID for outbound messages
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: CloudWatch log retention in days
+
+
+# ===========================================================================
+# Resources
+# ===========================================================================
+Resources:
+
+  # -------------------------------------------------------------------------
+  # Networking — VPC, Subnets, Internet Gateway, NAT Gateway, Route Tables
+  # -------------------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-igw"
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public subnet — hosts the NAT Gateway only
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-subnet"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # NAT Gateway (Elastic IP + NAT in public subnet)
+  NatEip:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-nat"
+
+  # Private subnets (Fargate + Lambda + EFS)
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-a"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-b"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-rt"
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+
+  # -------------------------------------------------------------------------
+  # Security Groups
+  # -------------------------------------------------------------------------
+
+  # Fargate security group — outbound internet via NAT
+  FargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Fargate tasks - outbound internet
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+          Description: HTTPS outbound (Telegram, Alpaca, APIs)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: HTTP outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-fargate-sg"
+
+  # Lambda security group — outbound internet + EFS access
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda functions - outbound internet and EFS
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+          Description: HTTPS outbound (Telegram, Alpaca, APIs)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: HTTP outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-lambda-sg"
+
+  # EFS security group — inbound NFS from Fargate and Lambda
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EFS - inbound NFS from Fargate and Lambda
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref FargateSecurityGroup
+          Description: NFS from Fargate
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: NFS from Lambda
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-efs-sg"
+
+  # Allow Fargate outbound to EFS (NFS port 2049)
+  FargateToEfsEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref FargateSecurityGroup
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      DestinationSecurityGroupId: !Ref EfsSecurityGroup
+      Description: NFS to EFS
+
+  # Allow Lambda outbound to EFS (NFS port 2049)
+  LambdaToEfsEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LambdaSecurityGroup
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      DestinationSecurityGroupId: !Ref EfsSecurityGroup
+      Description: NFS to EFS
+
+
+  # -------------------------------------------------------------------------
+  # EFS Filesystem and Mount Targets
+  # -------------------------------------------------------------------------
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-efs"
+
+  EfsMountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Ref PrivateSubnetA
+      SecurityGroups:
+        - !Ref EfsSecurityGroup
+
+  EfsMountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Ref PrivateSubnetB
+      SecurityGroups:
+        - !Ref EfsSecurityGroup
+
+  # EFS Access Point for Lambda (posix user 1000:1000, root path /shared_memory)
+  EfsAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      PosixUser:
+        Uid: "1000"
+        Gid: "1000"
+      RootDirectory:
+        Path: /shared_memory
+        CreationInfo:
+          OwnerUid: "1000"
+          OwnerGid: "1000"
+          Permissions: "0755"
+
+
+  # -------------------------------------------------------------------------
+  # Secrets Manager — all API keys in a single secret (JSON)
+  # -------------------------------------------------------------------------
+  ApiKeysSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${EnvironmentName}/api-keys"
+      Description: API keys for OpenClaw Market Intel
+      SecretString: !Sub |
+        {
+          "ANTHROPIC_API_KEY": "${AnthropicApiKey}",
+          "FINNHUB_API_KEY": "${FinnhubApiKey}",
+          "FRED_API_KEY": "${FredApiKey}",
+          "ALPACA_API_KEY": "${AlpacaApiKey}",
+          "ALPACA_SECRET_KEY": "${AlpacaSecretKey}",
+          "TELEGRAM_BOT_TOKEN": "${TelegramBotToken}",
+          "QUIVER_API_KEY": "${QuiverApiKey}"
+        }
+
+  # -------------------------------------------------------------------------
+  # CloudWatch Log Groups
+  # -------------------------------------------------------------------------
+  FargateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${EnvironmentName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  MorningAnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-morning-analysis"
+      RetentionInDays: !Ref LogRetentionDays
+
+  EodRecapLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-eod-recap"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # -------------------------------------------------------------------------
+  # ECR Repository
+  # -------------------------------------------------------------------------
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 10 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+
+  # -------------------------------------------------------------------------
+  # IAM — Fargate Task Execution Role (pulls image, reads secrets, writes logs)
+  # -------------------------------------------------------------------------
+  FargateExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-fargate-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref ApiKeysSecret
+
+  # -------------------------------------------------------------------------
+  # IAM — Fargate Task Role (app-level permissions: EFS, CloudWatch)
+  # -------------------------------------------------------------------------
+  FargateTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-fargate-task"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EfsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:ClientMount
+                  - elasticfilesystem:ClientWrite
+                  - elasticfilesystem:ClientRootAccess
+                Resource: !GetAtt EfsFileSystem.Arn
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt FargateLogGroup.Arn
+
+  # -------------------------------------------------------------------------
+  # IAM — Lambda Execution Role (logs, EFS, secrets, VPC networking)
+  # -------------------------------------------------------------------------
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-lambda-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: EfsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:ClientMount
+                  - elasticfilesystem:ClientWrite
+                  - elasticfilesystem:ClientRootAccess
+                Resource: !GetAtt EfsFileSystem.Arn
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref ApiKeysSecret
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt MorningAnalysisLogGroup.Arn
+                  - !GetAtt EodRecapLogGroup.Arn
+                  - !Sub "${MorningAnalysisLogGroup.Arn}:*"
+                  - !Sub "${EodRecapLogGroup.Arn}:*"
+
+
+  # -------------------------------------------------------------------------
+  # ECS Cluster + Fargate Service
+  # -------------------------------------------------------------------------
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${EnvironmentName}-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  FargateTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${EnvironmentName}-task"
+      Cpu: !Ref FargateCpu
+      Memory: !Ref FargateMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt FargateExecutionRole.Arn
+      TaskRoleArn: !GetAtt FargateTaskRole.Arn
+      Volumes:
+        - Name: efs-volume
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref EfsFileSystem
+            RootDirectory: /
+            TransitEncryption: ENABLED
+      ContainerDefinitions:
+        - Name: !Sub "${EnvironmentName}-container"
+          Image: !If
+            - HasContainerImage
+            - !Ref ContainerImageUri
+            - !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}:latest"
+          Essential: true
+          MountPoints:
+            - SourceVolume: efs-volume
+              ContainerPath: !Ref EfsMountPath
+              ReadOnly: false
+          Environment:
+            - Name: SHARED_MEMORY_PATH
+              Value: !Ref EfsMountPath
+            - Name: ALPACA_MODE
+              Value: !Ref AlpacaMode
+            - Name: ALLOWED_USER_IDS
+              Value: !Ref AllowedUserIds
+            - Name: TELEGRAM_CHAT_ID
+              Value: !Ref TelegramChatId
+          Secrets:
+            - Name: ANTHROPIC_API_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:ANTHROPIC_API_KEY::"
+            - Name: FINNHUB_API_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:FINNHUB_API_KEY::"
+            - Name: FRED_API_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:FRED_API_KEY::"
+            - Name: ALPACA_API_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:ALPACA_API_KEY::"
+            - Name: ALPACA_SECRET_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:ALPACA_SECRET_KEY::"
+            - Name: TELEGRAM_BOT_TOKEN
+              ValueFrom: !Sub "${ApiKeysSecret}:TELEGRAM_BOT_TOKEN::"
+            - Name: QUIVER_API_KEY
+              ValueFrom: !Sub "${ApiKeysSecret}:QUIVER_API_KEY::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FargateLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  FargateService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - EfsMountTargetA
+      - EfsMountTargetB
+    Properties:
+      ServiceName: !Sub "${EnvironmentName}-service"
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref FargateTaskDefinition
+      DesiredCount: !Ref FargateDesiredCount
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+          SecurityGroups:
+            - !Ref FargateSecurityGroup
+      # Auto-restart on crash: ECS maintains desired count of 1
+      SchedulingStrategy: REPLICA
+
+
+  # -------------------------------------------------------------------------
+  # Lambda Functions
+  # -------------------------------------------------------------------------
+  MorningAnalysisFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - EfsMountTargetA
+      - EfsMountTargetB
+      - MorningAnalysisLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-morning-analysis"
+      Description: >
+        Morning analysis — launches all 8 agents, combines scores,
+        selects picks, sends Telegram message. Triggered 5:30 AM PST weekdays.
+      Runtime: python3.12
+      Handler: lambda_handlers/morning_analysis.handler
+      MemorySize: !Ref LambdaMemory
+      Timeout: !Ref LambdaTimeout
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          # Placeholder — replace with actual deployment package
+          def handler(event, context):
+              return {"statusCode": 200, "body": "morning_analysis placeholder"}
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+      FileSystemConfigs:
+        - Arn: !GetAtt EfsAccessPoint.Arn
+          LocalMountPath: !Ref LambdaMountPath
+      Environment:
+        Variables:
+          SHARED_MEMORY_PATH: !Ref LambdaMountPath
+          ALPACA_MODE: !Ref AlpacaMode
+          ALLOWED_USER_IDS: !Ref AllowedUserIds
+          TELEGRAM_CHAT_ID: !Ref TelegramChatId
+          SECRETS_ARN: !Ref ApiKeysSecret
+          ANTHROPIC_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ANTHROPIC_API_KEY}}"
+          FINNHUB_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FINNHUB_API_KEY}}"
+          FRED_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FRED_API_KEY}}"
+          ALPACA_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ALPACA_API_KEY}}"
+          ALPACA_SECRET_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ALPACA_SECRET_KEY}}"
+          TELEGRAM_BOT_TOKEN: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:TELEGRAM_BOT_TOKEN}}"
+          QUIVER_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:QUIVER_API_KEY}}"
+
+  EodRecapFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - EfsMountTargetA
+      - EfsMountTargetB
+      - EodRecapLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-eod-recap"
+      Description: >
+        EOD recap — evaluates morning picks, computes P&L, triggers
+        weight adjustment, sends Telegram recap. Triggered 1:15 PM PST weekdays.
+      Runtime: python3.12
+      Handler: lambda_handlers/eod_recap.handler
+      MemorySize: !Ref LambdaMemory
+      Timeout: !Ref LambdaTimeout
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          # Placeholder — replace with actual deployment package
+          def handler(event, context):
+              return {"statusCode": 200, "body": "eod_recap placeholder"}
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+      FileSystemConfigs:
+        - Arn: !GetAtt EfsAccessPoint.Arn
+          LocalMountPath: !Ref LambdaMountPath
+      Environment:
+        Variables:
+          SHARED_MEMORY_PATH: !Ref LambdaMountPath
+          ALPACA_MODE: !Ref AlpacaMode
+          ALLOWED_USER_IDS: !Ref AllowedUserIds
+          TELEGRAM_CHAT_ID: !Ref TelegramChatId
+          SECRETS_ARN: !Ref ApiKeysSecret
+          ANTHROPIC_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ANTHROPIC_API_KEY}}"
+          FINNHUB_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FINNHUB_API_KEY}}"
+          FRED_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FRED_API_KEY}}"
+          ALPACA_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ALPACA_API_KEY}}"
+          ALPACA_SECRET_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ALPACA_SECRET_KEY}}"
+          TELEGRAM_BOT_TOKEN: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:TELEGRAM_BOT_TOKEN}}"
+          QUIVER_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:QUIVER_API_KEY}}"
+
+
+  # -------------------------------------------------------------------------
+  # EventBridge Rules — weekday cron schedules (UTC)
+  # -------------------------------------------------------------------------
+
+  # 5:30 AM PST = 13:30 UTC  →  cron(30 13 ? * MON-FRI *)
+  MorningAnalysisRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${EnvironmentName}-morning-analysis"
+      Description: "Trigger morning analysis at 5:30 AM PST (13:30 UTC) weekdays"
+      ScheduleExpression: "cron(30 13 ? * MON-FRI *)"
+      State: ENABLED
+      Targets:
+        - Id: MorningAnalysisTarget
+          Arn: !GetAtt MorningAnalysisFunction.Arn
+          RetryPolicy:
+            MaximumRetryAttempts: 1
+            MaximumEventAgeInSeconds: 120
+
+  MorningAnalysisPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MorningAnalysisFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MorningAnalysisRule.Arn
+
+  # 1:15 PM PST = 21:15 UTC  →  cron(15 21 ? * MON-FRI *)
+  EodRecapRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${EnvironmentName}-eod-recap"
+      Description: "Trigger EOD recap at 1:15 PM PST (21:15 UTC) weekdays"
+      ScheduleExpression: "cron(15 21 ? * MON-FRI *)"
+      State: ENABLED
+      Targets:
+        - Id: EodRecapTarget
+          Arn: !GetAtt EodRecapFunction.Arn
+          RetryPolicy:
+            MaximumRetryAttempts: 1
+            MaximumEventAgeInSeconds: 120
+
+  EodRecapPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EodRecapFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EodRecapRule.Arn
+
+
+# ===========================================================================
+# Conditions
+# ===========================================================================
+Conditions:
+  HasContainerImage: !Not [!Equals [!Ref ContainerImageUri, ""]]
+
+# ===========================================================================
+# Outputs
+# ===========================================================================
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${EnvironmentName}-vpc-id"
+
+  PrivateSubnetAId:
+    Description: Private Subnet A ID
+    Value: !Ref PrivateSubnetA
+
+  PrivateSubnetBId:
+    Description: Private Subnet B ID
+    Value: !Ref PrivateSubnetB
+
+  EfsFileSystemId:
+    Description: EFS filesystem ID
+    Value: !Ref EfsFileSystem
+
+  EfsAccessPointArn:
+    Description: EFS access point ARN (for Lambda)
+    Value: !GetAtt EfsAccessPoint.Arn
+
+  EcrRepositoryUri:
+    Description: ECR repository URI — push container image here
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}"
+
+  EcsClusterName:
+    Description: ECS cluster name
+    Value: !Ref EcsCluster
+
+  FargateServiceName:
+    Description: Fargate service name
+    Value: !GetAtt FargateService.Name
+
+  MorningAnalysisFunctionArn:
+    Description: Morning analysis Lambda ARN
+    Value: !GetAtt MorningAnalysisFunction.Arn
+
+  EodRecapFunctionArn:
+    Description: EOD recap Lambda ARN
+    Value: !GetAtt EodRecapFunction.Arn
+
+  ApiKeysSecretArn:
+    Description: Secrets Manager secret ARN
+    Value: !Ref ApiKeysSecret
+
+  MorningSchedule:
+    Description: Morning analysis cron (UTC)
+    Value: "cron(30 13 ? * MON-FRI *)"
+
+  EodSchedule:
+    Description: EOD recap cron (UTC)
+    Value: "cron(15 21 ? * MON-FRI *)"

@@ -1,0 +1,21 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Shared memory runtime data
+shared_memory/runs/*.md
+shared_memory/picks/picks_history.json
+shared_memory/picks/trades_history.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
