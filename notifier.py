@@ -23,7 +23,7 @@ import re
 logger = logging.getLogger(__name__)
 
 SMS_MAX_LENGTH = 160
-SES_REGION = "us-west-1"
+SES_REGION = "us-east-1"
 
 # ---------------------------------------------------------------------------
 # boto3 / client lazy init — graceful if unavailable

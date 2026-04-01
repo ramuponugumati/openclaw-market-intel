@@ -15,8 +15,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250514"
-BEDROCK_REGION = "us-east-1"
+BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+BEDROCK_REGION = "us-west-2"
 
 
 def generate_thesis(pick: dict) -> str:
