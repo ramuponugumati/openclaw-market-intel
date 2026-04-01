@@ -46,27 +46,40 @@ def generate_thesis(pick: dict) -> str:
     confidence = pick.get("confidence", "LOW")
     agent_scores = pick.get("agent_scores", {})
 
-    # Build agent data summary for the prompt
+    # Build agent data summary for the prompt — include ALL detail from each agent
     agent_lines = []
     for agent_id, info in agent_scores.items():
         if isinstance(info, dict):
             a_score = info.get("score", 5.0)
             a_dir = info.get("direction", "HOLD")
-            agent_lines.append(f"  - {agent_id}: score={a_score}, direction={a_dir}")
+            # Collect every metric the agent provided (skip score/direction/ticker)
+            skip = {"score", "direction", "ticker", "error"}
+            details = ", ".join(
+                f"{k}={v}" for k, v in info.items()
+                if k not in skip and v is not None
+            )
+            line = f"  - {agent_id}: score={a_score} {a_dir}"
+            if details:
+                line += f" — {details}"
+            agent_lines.append(line)
         else:
             agent_lines.append(f"  - {agent_id}: {info}")
 
     agent_data_str = "\n".join(agent_lines) if agent_lines else "  No agent data available."
 
     prompt = (
-        f"You are a market analyst. Summarize why {ticker} scored {score:.1f} "
-        f"({direction}). Use ONLY the agent data below. Do not add opinions, "
-        f"predictions, or external knowledge. 2 sentences max.\n\n"
+        f"You are a market analyst summarizing agent findings. "
+        f"Explain why {ticker} scored {score:.1f} ({direction}) using ONLY "
+        f"the detailed agent data below. Reference specific numbers from the agents "
+        f"(earnings growth %, RSI, analyst recommendations, etc). "
+        f"Do NOT add opinions, predictions, or external knowledge. "
+        f"2-3 sentences. First sentence: the bullish case. "
+        f"Second sentence: any bearish signals or cautions.\n\n"
         f"Ticker: {ticker}\n"
-        f"Composite Score: {score:.1f}\n"
+        f"Composite Score: {score:.1f} / 10\n"
         f"Direction: {direction}\n"
         f"Confidence: {confidence}\n"
-        f"Agent Scores:\n{agent_data_str}"
+        f"Agent Analysis:\n{agent_data_str}"
     )
 
     try:

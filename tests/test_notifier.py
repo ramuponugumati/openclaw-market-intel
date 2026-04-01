@@ -295,3 +295,145 @@ class TestSnsPublishFailure:
             os.environ.pop("SNS_TOPIC_ARN", None)
             result = notifier.send_email("Subj", "Body")
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# SES email tests
+# ---------------------------------------------------------------------------
+
+class TestSesEmail:
+    """SES send_ses_email sends HTML via SES client."""
+
+    def setup_method(self):
+        notifier._ses_client = None
+        notifier._boto3_available = True
+
+    def test_ses_sends_html_email(self):
+        mock_ses = MagicMock()
+        with patch.dict(os.environ, {"SES_FROM_EMAIL": "from@test.com", "SES_TO_EMAIL": "to@test.com"}):
+            with patch.object(notifier, "_get_ses_client", return_value=mock_ses):
+                result = notifier.send_ses_email("Subject", "<h1>Hello</h1>")
+        assert result is True
+        mock_ses.send_email.assert_called_once()
+        call_kwargs = mock_ses.send_email.call_args.kwargs
+        assert call_kwargs["Source"] == "from@test.com"
+        assert call_kwargs["Destination"]["ToAddresses"] == ["to@test.com"]
+        assert "<h1>Hello</h1>" in call_kwargs["Message"]["Body"]["Html"]["Data"]
+
+    def test_ses_returns_false_when_from_not_set(self):
+        with patch.dict(os.environ, {"SES_FROM_EMAIL": "", "SES_TO_EMAIL": "to@test.com"}):
+            result = notifier.send_ses_email("Subj", "<p>body</p>")
+        assert result is False
+
+    def test_ses_returns_false_when_to_not_set(self):
+        with patch.dict(os.environ, {"SES_FROM_EMAIL": "from@test.com", "SES_TO_EMAIL": ""}):
+            result = notifier.send_ses_email("Subj", "<p>body</p>")
+        assert result is False
+
+    def test_ses_returns_false_when_client_unavailable(self):
+        with patch.dict(os.environ, {"SES_FROM_EMAIL": "from@test.com", "SES_TO_EMAIL": "to@test.com"}):
+            with patch.object(notifier, "_get_ses_client", return_value=None):
+                result = notifier.send_ses_email("Subj", "<p>body</p>")
+        assert result is False
+
+    def test_ses_returns_false_on_send_error(self):
+        mock_ses = MagicMock()
+        mock_ses.send_email.side_effect = Exception("SES throttled")
+        with patch.dict(os.environ, {"SES_FROM_EMAIL": "from@test.com", "SES_TO_EMAIL": "to@test.com"}):
+            with patch.object(notifier, "_get_ses_client", return_value=mock_ses):
+                result = notifier.send_ses_email("Subj", "<p>body</p>")
+        assert result is False
+
+
+class TestSesFallback:
+    """Morning/EOD alerts try SES first, then fall back to SNS."""
+
+    def setup_method(self):
+        notifier._sns_client = None
+        notifier._ses_client = None
+        notifier._boto3_available = True
+
+    def test_morning_alert_uses_ses_when_configured(self):
+        mock_ses = MagicMock()
+        mock_sns = MagicMock()
+        env = {
+            "SES_FROM_EMAIL": "from@test.com",
+            "SES_TO_EMAIL": "to@test.com",
+            "SNS_PHONE_NUMBER": "",
+            "SNS_TOPIC_ARN": "arn:aws:sns:us-west-1:123:test",
+        }
+        with patch.dict(os.environ, env):
+            with patch.object(notifier, "_get_ses_client", return_value=mock_ses):
+                with patch.object(notifier, "_get_sns_client", return_value=mock_sns):
+                    notifier.send_morning_alert(_sample_options_picks(), _sample_stock_picks())
+
+        # SES was called
+        mock_ses.send_email.assert_called_once()
+        # SNS topic was NOT called (SES succeeded, no fallback needed)
+        sns_topic_calls = [
+            c for c in mock_sns.publish.call_args_list
+            if "TopicArn" in (c.kwargs or {})
+        ]
+        assert len(sns_topic_calls) == 0
+
+    def test_morning_alert_falls_back_to_sns_when_ses_fails(self):
+        mock_ses = MagicMock()
+        mock_ses.send_email.side_effect = Exception("SES error")
+        mock_sns = MagicMock()
+        env = {
+            "SES_FROM_EMAIL": "from@test.com",
+            "SES_TO_EMAIL": "to@test.com",
+            "SNS_PHONE_NUMBER": "",
+            "SNS_TOPIC_ARN": "arn:aws:sns:us-west-1:123:test",
+        }
+        with patch.dict(os.environ, env):
+            with patch.object(notifier, "_get_ses_client", return_value=mock_ses):
+                with patch.object(notifier, "_get_sns_client", return_value=mock_sns):
+                    notifier.send_morning_alert(_sample_options_picks(), _sample_stock_picks())
+
+        # SNS topic was called as fallback
+        sns_topic_calls = [
+            c for c in mock_sns.publish.call_args_list
+            if "TopicArn" in (c.kwargs or {})
+        ]
+        assert len(sns_topic_calls) >= 1
+
+    def test_eod_alert_uses_ses_when_configured(self):
+        mock_ses = MagicMock()
+        mock_sns = MagicMock()
+        env = {
+            "SES_FROM_EMAIL": "from@test.com",
+            "SES_TO_EMAIL": "to@test.com",
+            "SNS_PHONE_NUMBER": "",
+            "SNS_TOPIC_ARN": "arn:aws:sns:us-west-1:123:test",
+        }
+        with patch.dict(os.environ, env):
+            with patch.object(notifier, "_get_ses_client", return_value=mock_ses):
+                with patch.object(notifier, "_get_sns_client", return_value=mock_sns):
+                    notifier.send_eod_alert(_sample_recap_data())
+
+        mock_ses.send_email.assert_called_once()
+        sns_topic_calls = [
+            c for c in mock_sns.publish.call_args_list
+            if "TopicArn" in (c.kwargs or {})
+        ]
+        assert len(sns_topic_calls) == 0
+
+    def test_eod_alert_falls_back_to_sns_when_ses_not_configured(self):
+        mock_sns = MagicMock()
+        env = {
+            "SES_FROM_EMAIL": "",
+            "SES_TO_EMAIL": "",
+            "SNS_PHONE_NUMBER": "",
+            "SNS_TOPIC_ARN": "arn:aws:sns:us-west-1:123:test",
+        }
+        with patch.dict(os.environ, env):
+            with patch.object(notifier, "_get_sns_client", return_value=mock_sns):
+                notifier.send_eod_alert(_sample_recap_data())
+
+        # SNS topic was called as fallback
+        sns_topic_calls = [
+            c for c in mock_sns.publish.call_args_list
+            if "TopicArn" in (c.kwargs or {})
+        ]
+        assert len(sns_topic_calls) >= 1
