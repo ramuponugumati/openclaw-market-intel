@@ -5,68 +5,68 @@ Multi-agent market intelligence system that analyzes 36 tickers across 8 dimensi
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph "⏰ Scheduling"
-        EB1[EventBridge<br/>5:30 AM PST] -->|trigger| ML[Morning Lambda]
-        EB2[EventBridge<br/>1:15 PM PST] -->|trigger| EL[EOD Recap Lambda]
+flowchart LR
+    DATA["🌐 Market Data
+    ─────────────
+    yfinance
+    Finnhub
+    FRED
+    Capitol Trades"] --> AGENTS
+
+    subgraph AGENTS["🔍 8 Analysis Agents"]
+        direction TB
+        A1[Fundamentals]
+        A2[Sentiment]
+        A3[Macro]
+        A4[News]
+        A5[Technical]
+        A6[Pre-Market]
+        A7[Congress]
+        A8[Options]
     end
 
-    subgraph "🧠 Orchestrator"
-        ML --> FL[Fleet Launcher]
-        FL -->|async launch| AG
-        FL --> PM[Poll & Monitor<br/>120s timeout]
-        PM --> SC[Score Combiner<br/>weighted avg]
-        SC --> PS[Pick Selector<br/>Top 5 options + Top 10 stocks]
-        PS --> MF[Message Formatter]
-    end
+    AGENTS --> ORCH["🧠 Orchestrator
+    ─────────────
+    Combine Scores
+    Select Picks
+    Format Message"]
 
-    subgraph "🔍 8 Sub-Agents" 
-        AG[Agent Fleet]
-        AG --> A1[Fundamentals<br/>yfinance]
-        AG --> A2[Sentiment<br/>Finnhub]
-        AG --> A3[Macro/Fed<br/>FRED API]
-        AG --> A4[News<br/>Finnhub]
-        AG --> A5[Technical<br/>yfinance]
-        AG --> A6[Pre-Market<br/>yfinance]
-        AG --> A7[Congress<br/>Capitol Trades]
-        AG --> A8[Options Chain<br/>yfinance]
-    end
+    ORCH --> DELIVER["📱 Telegram
+    ─────────────
+    Top 5 Options
+    Top 10 Stocks
+    EOD Recap"]
 
-    subgraph "💾 Shared Memory (EFS)"
-        SM[(shared_memory/)]
-        SM --- R[runs/ — agent results]
-        SM --- P[picks/ — history + trades]
-        SM --- W[weights/ — learned weights]
-        SM --- C[config/ — watchlist + horizon]
-    end
+    ORCH --> LEARN["📈 Learning
+    ─────────────
+    Track Accuracy
+    Adjust Weights
+    Evolve Strategy"]
 
-    subgraph "📱 Telegram Bot (Fargate)"
-        TB[Bot Listener] -->|/picks| FL
-        TB -->|/analyze TICKER| AG
-        TB -->|/congress| A7
-        TB -->|/add, /remove| SM
-        TB -->|/buy, /sell| BR[Broker Client]
-    end
+    LEARN -.->|improve| ORCH
 
-    subgraph "📈 Learning Engine"
-        EL --> TR[Pick Tracker<br/>evaluate EOD]
-        TR --> WA[Weight Adjuster<br/>trailing 30 days]
-        WA --> HM[Horizon Manager<br/>day→swing→long]
-        WA -->|update| W
-        HM -->|update| C
-    end
+    style DATA fill:#e8f4fd,stroke:#2196F3
+    style AGENTS fill:#f3e5f5,stroke:#9C27B0
+    style ORCH fill:#e8f5e9,stroke:#4CAF50
+    style DELIVER fill:#fff3e0,stroke:#FF9800
+    style LEARN fill:#fce4ec,stroke:#E91E63
+```
 
-    A1 & A2 & A3 & A4 & A5 & A6 & A7 -->|write results| R
-    SC -->|read| W
-    PS -->|enrich| A8
-    MF -->|send| TG[📱 Telegram]
-    EL -->|send recap| TG
-    TR -->|log| P
+### How It Works
 
-    style AG fill:#f9f,stroke:#333
-    style SC fill:#bbf,stroke:#333
-    style SM fill:#ffd,stroke:#333
-    style TG fill:#0af,stroke:#333,color:#fff
+```
+  5:30 AM PST                                              You
+  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │ Schedule  │───▶│ 8 Agents │───▶│  Score   │───▶│ Telegram │
+  │ (cron)   │    │ analyze  │    │ + Pick   │    │ message  │
+  └──────────┘    │ 36 tickers│    │ Top 15   │    └──────────┘
+                  └──────────┘    └──────────┘
+                                                   
+  1:15 PM PST                                              You
+  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │ Schedule  │───▶│ Evaluate │───▶│  Learn   │───▶│ EOD Recap│
+  │ (cron)   │    │ vs actual│    │ + adjust │    │ message  │
+  └──────────┘    └──────────┘    └──────────┘    └──────────┘
 ```
 
 ## Scoring System
@@ -144,25 +144,32 @@ Commands: `/picks`, `/analyze NVDA`, `/congress`, `/add TICKER`, `/remove TICKER
 
 ## Deploy to AWS
 
-### Architecture on AWS
+### AWS Deployment
 
 ```mermaid
-graph LR
-    subgraph "VPC (10.0.0.0/16)"
-        subgraph "Private Subnets"
-            F[Fargate Service<br/>Telegram Bot] --> EFS[(EFS<br/>Shared Memory)]
-            L1[Lambda<br/>Morning Analysis] --> EFS
-            L2[Lambda<br/>EOD Recap] --> EFS
-        end
-        NAT[NAT Gateway] --> IGW[Internet Gateway]
+flowchart TB
+    subgraph AWS["☁️ AWS Cloud"]
+        EB["⏰ EventBridge
+        Mon-Fri cron"] --> L1["λ Morning Analysis
+        5:30 AM PST"] & L2["λ EOD Recap
+        1:15 PM PST"]
+        
+        L1 & L2 <--> EFS["💾 EFS
+        Shared Memory"]
+        
+        F["🐳 Fargate
+        Telegram Bot"] <--> EFS
+        
+        SM["🔐 Secrets Manager
+        API Keys"] --> F & L1 & L2
     end
 
-    EB[EventBridge Rules<br/>Mon-Fri cron] --> L1 & L2
-    SM[Secrets Manager<br/>API Keys] --> F & L1 & L2
-    ECR[ECR Repository] --> F
-    CW[CloudWatch Logs] --> F & L1 & L2
-    F & L1 & L2 --> NAT
-    NAT --> APIs[External APIs<br/>Finnhub, FRED, yfinance<br/>Telegram, Capitol Trades]
+    F & L1 & L2 -->|HTTPS| API["🌐 External APIs
+    Finnhub · FRED · yfinance · Telegram"]
+
+    style AWS fill:#f0f7ff,stroke:#2196F3
+    style EFS fill:#fff3e0,stroke:#FF9800
+    style SM fill:#fce4ec,stroke:#E91E63
 ```
 
 ### Deploy Steps
