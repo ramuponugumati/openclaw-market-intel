@@ -21,12 +21,26 @@ logger = logging.getLogger("morning_analysis")
 
 import shared_memory_io
 from agents.orchestrator.skills.score_combiner import combine
-from agents.orchestrator.skills.pick_selector import select_options, select_stocks
+from agents.orchestrator.skills.pick_selector import select_options, select_stocks, enrich_stock_picks
 from agents.orchestrator.skills.message_formatter import format_morning_analysis
 from tracker import log_morning_picks
 from horizon_manager import get_current_mode
 
-# Load watchlist
+# ---------------------------------------------------------------------------
+# Optional: Fetch daily movers and merge into watchlist
+# ---------------------------------------------------------------------------
+try:
+    from daily_movers import fetch_and_merge_movers
+    print("🔍 Scanning for daily movers (≥5% change)...")
+    movers = fetch_and_merge_movers()
+    if movers:
+        print(f"   ✅ Found {len(movers)} daily movers")
+    else:
+        print("   ⏭️  No movers found or scan skipped")
+except Exception as exc:
+    print(f"   ⚠️  Daily movers scan failed (continuing with static watchlist): {exc}")
+
+# Load watchlist (may now include daily movers)
 watchlist_data = shared_memory_io.load_watchlist()
 TICKERS = watchlist_data.get("all_tickers", [])
 config = {
@@ -107,6 +121,9 @@ print(f"   ✅ {len(combined)} tickers combined")
 # Select picks
 options_picks = select_options(combined)
 stock_picks = select_stocks(combined)
+
+# Generate theses for stock picks (optional — fails silently)
+stock_picks = enrich_stock_picks(stock_picks)
 
 # Log picks
 horizon = get_current_mode()

@@ -74,20 +74,21 @@ def _make_combined_list() -> list[dict]:
 class TestSelectOptions:
 
     def test_selects_3_calls_and_2_puts(self):
-        """Should pick 3 strongest CALL + 2 strongest PUT."""
+        """Should pick 6 strongest CALL + 4 strongest PUT (expanded from 3+2)."""
         combined = _make_combined_list()
         picks = select_options(combined)
 
         call_picks = [p for p in picks if p["direction"] == "CALL"]
         put_picks = [p for p in picks if p["direction"] == "PUT"]
 
-        assert len(call_picks) == 3
-        assert len(put_picks) == 2
+        assert len(call_picks) == 6
+        assert len(put_picks) == 3  # only 3 PUTs in test data
 
     def test_total_picks_is_5(self):
         combined = _make_combined_list()
         picks = select_options(combined)
-        assert len(picks) == 5
+        # 6 CALLs + 3 PUTs available in test data = 9
+        assert len(picks) == 9
 
     def test_picks_ranked_by_distance_from_5(self):
         """Final picks should be sorted by distance from 5.0."""
@@ -103,10 +104,10 @@ class TestSelectOptions:
         picks = select_options(combined)
 
         ranks = [p["pick_rank"] for p in picks]
-        assert ranks == [1, 2, 3, 4, 5]
+        assert ranks == list(range(1, len(picks) + 1))
 
     def test_fewer_than_3_calls_available(self):
-        """If only 2 CALLs exist, should return 2 CALL + 2 PUT = 4 total."""
+        """If only 2 CALLs exist, should return 2 CALL + up to 4 PUT."""
         combined = [
             _make_combined_entry("AAPL", 8.0, "CALL"),
             _make_combined_entry("MSFT", 7.0, "CALL"),
@@ -120,10 +121,10 @@ class TestSelectOptions:
         call_picks = [p for p in picks if p["direction"] == "CALL"]
         put_picks = [p for p in picks if p["direction"] == "PUT"]
         assert len(call_picks) == 2
-        assert len(put_picks) == 2
+        assert len(put_picks) == 3  # 3 PUTs available, cap is 4
 
     def test_no_puts_available(self):
-        """If no PUTs exist, should return only 3 CALLs."""
+        """If no PUTs exist, should return up to 6 CALLs."""
         combined = [
             _make_combined_entry("NVDA", 9.0, "CALL"),
             _make_combined_entry("AAPL", 8.0, "CALL"),
@@ -133,7 +134,7 @@ class TestSelectOptions:
         combined.sort(key=lambda x: abs(x["composite_score"] - 5.0), reverse=True)
         picks = select_options(combined)
 
-        assert len(picks) == 3
+        assert len(picks) == 4  # only 4 CALLs available, cap is 6
         assert all(p["direction"] == "CALL" for p in picks)
 
     def test_empty_combined_returns_empty(self):
@@ -157,7 +158,7 @@ class TestSelectStocks:
     def test_max_10_picks(self):
         combined = _make_combined_list()
         picks = select_stocks(combined)
-        assert len(picks) <= 10
+        assert len(picks) <= 20
 
     def test_buy_action_for_score_gte_6(self):
         """Tickers with score ≥ 6 should get BUY action."""

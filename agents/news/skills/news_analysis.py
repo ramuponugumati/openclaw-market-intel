@@ -28,10 +28,12 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import shared_memory_io  # noqa: E402
+from rate_limiter import get_finnhub_limiter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 FINNHUB_TIMEOUT_S = 10
+_limiter = get_finnhub_limiter()
 
 POSITIVE_KEYWORDS = [
     "beat", "surge", "rally", "upgrade", "record", "growth",
@@ -48,6 +50,7 @@ NEGATIVE_KEYWORDS = [
 def _fetch_news(ticker: str, api_key: str) -> list[dict]:
     """Fetch up to 10 recent articles from Finnhub company-news (trailing 3 days)."""
     try:
+        _limiter.wait()
         today = datetime.now().strftime("%Y-%m-%d")
         three_days_ago = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
         resp = requests.get(

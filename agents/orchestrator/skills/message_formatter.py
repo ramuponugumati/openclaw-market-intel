@@ -163,11 +163,11 @@ def format_morning_analysis(result: dict) -> str:
     if premarket_section:
         sections.append(premarket_section)
 
-    # Top 5 Options
+    # Top 10 Options
     options = result.get("options_picks", [])
     sections.append(_format_options_section(options))
 
-    # Top 10 Stocks
+    # Top 20 Stocks
     stocks = result.get("stock_picks", [])
     sections.append(_format_stocks_section(stocks))
 
@@ -183,8 +183,8 @@ def format_morning_analysis(result: dict) -> str:
 
 
 def _format_options_section(options: list[dict]) -> str:
-    """Format Top 5 options picks with contract details."""
-    lines = ["🎯 *Top 5 Options Plays*\n"]
+    """Format Top 10 options picks with contract details."""
+    lines = ["🎯 *Top 10 Options Plays*\n"]
 
     if not options:
         lines.append("  No options picks available.")
@@ -220,12 +220,17 @@ def _format_options_section(options: list[dict]) -> str:
                 f"  Vol: {volume} | OI: {oi} | IV: {iv}"
             )
 
+        # Thesis if present
+        thesis = pick.get("thesis", "")
+        if thesis:
+            lines.append(f"  📝 _{thesis}_")
+
     return "\n".join(lines)
 
 
 def _format_stocks_section(stocks: list[dict]) -> str:
-    """Format Top 10 stock picks."""
-    lines = ["📈 *Top 10 Stock Trades*\n"]
+    """Format Top 20 stock picks."""
+    lines = ["📈 *Top 20 Stock Trades*\n"]
 
     if not stocks:
         lines.append("  No stock picks available.")
@@ -248,6 +253,12 @@ def _format_stocks_section(stocks: list[dict]) -> str:
         )
         if strongest:
             line += f"\n  Strongest: {strongest}"
+
+        # Thesis if present
+        thesis = pick.get("thesis", "")
+        if thesis:
+            line += f"\n  📝 _{thesis}_"
+
         lines.append(line)
 
     return "\n".join(lines)

@@ -34,7 +34,7 @@ ETF_TICKERS = frozenset({"SPY", "QQQ", "IWM", "DIA", "ARKK"})
 
 def select_options(combined: list[dict]) -> list[dict]:
     """
-    Select the Top 5 options plays: 3 strongest CALL + 2 strongest PUT.
+    Select the Top 10 options plays: 6 strongest CALL + 4 strongest PUT.
 
     Picks are ranked by composite score distance from neutral 5.0
     (strongest signals first).  (Requirement 11.5)
@@ -44,7 +44,7 @@ def select_options(combined: list[dict]) -> list[dict]:
             :func:`score_combiner.combine`.
 
     Returns:
-        A list of up to 5 dicts, each containing the combined ticker data
+        A list of up to 10 dicts, each containing the combined ticker data
         plus a ``pick_rank`` key (1-based).
     """
     calls = [
@@ -55,11 +55,11 @@ def select_options(combined: list[dict]) -> list[dict]:
     ]
 
     # Already sorted by distance from 5.0 (strongest first) from combine()
-    top_calls = calls[:3]
-    top_puts = puts[:2]
+    top_calls = calls[:6]
+    top_puts = puts[:4]
 
     picks = top_calls + top_puts
-    # Re-sort the final 5 by distance from 5.0
+    # Re-sort the final picks by distance from 5.0
     picks.sort(key=lambda x: abs(x["composite_score"] - 5.0), reverse=True)
 
     for i, pick in enumerate(picks, start=1):
@@ -76,7 +76,7 @@ def select_options(combined: list[dict]) -> list[dict]:
 
 def select_stocks(combined: list[dict]) -> list[dict]:
     """
-    Select the Top 10 stock trades, excluding ETFs.
+    Select the Top 20 stock trades, excluding ETFs.
 
     Ranked by composite score distance from neutral 5.0.  Each pick is
     assigned a trade action:
@@ -91,7 +91,7 @@ def select_stocks(combined: list[dict]) -> list[dict]:
             :func:`score_combiner.combine`.
 
     Returns:
-        A list of up to 10 dicts, each containing the combined ticker data
+        A list of up to 20 dicts, each containing the combined ticker data
         plus ``action`` and ``pick_rank`` keys.
     """
     non_etf = [
@@ -99,9 +99,9 @@ def select_stocks(combined: list[dict]) -> list[dict]:
     ]
 
     # Already sorted by distance from 5.0 from combine()
-    top_10 = non_etf[:10]
+    top_20 = non_etf[:20]
 
-    for i, pick in enumerate(top_10, start=1):
+    for i, pick in enumerate(top_20, start=1):
         score = pick.get("composite_score", 5.0)
         if score >= 6:
             pick["action"] = "BUY"
@@ -111,27 +111,29 @@ def select_stocks(combined: list[dict]) -> list[dict]:
             pick["action"] = "WATCH"
         pick["pick_rank"] = i
 
-    logger.info("Selected %d stock picks (ETFs excluded)", len(top_10))
-    return top_10
+    logger.info("Selected %d stock picks (ETFs excluded)", len(top_20))
+    return top_20
 
 
 def enrich_options_picks(picks: list[dict]) -> list[dict]:
     """
     Invoke the options_chain agent to attach specific contract details
-    to each options pick.
+    to each options pick, then generate a thesis for each.
 
     Args:
         picks: The list returned by :func:`select_options`.
 
     Returns:
         The same list with an ``option_contract`` key added to each pick
-        containing the best contract details (or an error dict).
+        containing the best contract details (or an error dict), and a
+        ``thesis`` key with a Claude-generated summary.
     """
     try:
         from agents.options_chain.skills.options_analysis import get_best_option
     except ImportError:
         logger.error("Could not import options_analysis — skipping enrichment")
-        return picks
+        # Still try to attach theses even without option contracts
+        return _attach_theses_safe(picks)
 
     for pick in picks:
         ticker = pick.get("ticker", "")
@@ -153,4 +155,27 @@ def enrich_options_picks(picks: list[dict]) -> list[dict]:
         else:
             logger.warning("No contract found for %s %s", ticker, direction)
 
-    return picks
+    return _attach_theses_safe(picks)
+
+
+def _attach_theses_safe(picks: list[dict]) -> list[dict]:
+    """Attach Claude theses to picks, failing silently on any error."""
+    try:
+        from thesis_writer import attach_theses
+        return attach_theses(picks)
+    except Exception as exc:
+        logger.debug("Thesis attachment skipped: %s", exc)
+        return picks
+
+
+def enrich_stock_picks(picks: list[dict]) -> list[dict]:
+    """
+    Attach Claude-generated theses to stock picks.
+
+    Args:
+        picks: The list returned by :func:`select_stocks`.
+
+    Returns:
+        The same list with a ``thesis`` key added to each pick.
+    """
+    return _attach_theses_safe(picks)

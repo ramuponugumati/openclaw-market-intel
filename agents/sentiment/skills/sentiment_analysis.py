@@ -27,10 +27,12 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import shared_memory_io  # noqa: E402
+from rate_limiter import get_finnhub_limiter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 FINNHUB_TIMEOUT_S = 10
+_limiter = get_finnhub_limiter()
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ def get_finnhub_sentiment(ticker: str, api_key: str) -> dict[str, Any]:
     Defaults to neutral 50% positive with 0 mentions on any failure.
     """
     try:
+        _limiter.wait()
         resp = requests.get(
             "https://finnhub.io/api/v1/stock/social-sentiment",
             params={"symbol": ticker, "from": "2024-01-01", "token": api_key},
@@ -81,6 +84,7 @@ def get_analyst_recommendations(ticker: str, api_key: str) -> dict[str, int]:
     Defaults to all zeros on any failure.
     """
     try:
+        _limiter.wait()
         resp = requests.get(
             "https://finnhub.io/api/v1/stock/recommendation",
             params={"symbol": ticker, "token": api_key},
