@@ -209,15 +209,92 @@ def assess_market_bias(futures: list[dict]) -> str:
     return bias
 
 
+def detect_market_regime(futures: list[dict]) -> str:
+    """Determine the market regime from futures data.
+
+    - ``risk_on``:  SPY futures > +0.5% AND VIX < 20
+    - ``risk_off``: SPY futures < -0.5% OR VIX > 25
+    - ``neutral``:  everything else
+    """
+    sp_futures = next((f for f in futures if f["symbol"] == "ES=F"), None)
+    vix = next((f for f in futures if f["symbol"] == "^VIX"), None)
+
+    spy_change = sp_futures["change_pct"] if sp_futures else 0.0
+    vix_price = vix["price"] if vix else 20.0  # default neutral
+
+    if spy_change < -0.5 or vix_price > 25:
+        return "risk_off"
+    if spy_change > 0.5 and vix_price < 20:
+        return "risk_on"
+    return "neutral"
+
+
+def get_ticker_trend(ticker: str) -> dict:
+    """Fetch 1-week and 1-month price history and compute trend metrics.
+
+    Returns a dict with ``week_change_pct``, ``month_change_pct``, ``trend``,
+    and ``trend_score_adj``.
+    """
+    result = {
+        "week_change_pct": 0.0,
+        "month_change_pct": 0.0,
+        "trend": "flat",
+        "trend_score_adj": 0.0,
+    }
+    try:
+        hist = _fetch_history(ticker, period="1mo")
+        if hist is None or len(hist) < 2:
+            return result
+
+        current = float(hist["Close"].iloc[-1])
+
+        # Week change (last 5 trading days)
+        week_idx = min(5, len(hist) - 1)
+        week_ago = float(hist["Close"].iloc[-1 - week_idx])
+        week_change = ((current - week_ago) / week_ago) * 100 if week_ago else 0.0
+
+        # Month change (last 20 trading days or full history)
+        month_idx = min(20, len(hist) - 1)
+        month_ago = float(hist["Close"].iloc[-1 - month_idx])
+        month_change = ((current - month_ago) / month_ago) * 100 if month_ago else 0.0
+
+        result["week_change_pct"] = round(week_change, 2)
+        result["month_change_pct"] = round(month_change, 2)
+
+        # Determine trend label and score adjustment from weekly change
+        if week_change > 5:
+            result["trend"] = "strong_up"
+            result["trend_score_adj"] = 1.5
+        elif week_change > 2:
+            result["trend"] = "up"
+            result["trend_score_adj"] = 0.5
+        elif week_change < -5:
+            result["trend"] = "strong_down"
+            result["trend_score_adj"] = -1.5
+        elif week_change < -2:
+            result["trend"] = "down"
+            result["trend_score_adj"] = -0.5
+        else:
+            result["trend"] = "flat"
+            result["trend_score_adj"] = 0.0
+
+    except Exception as exc:
+        logger.warning("Trend fetch failed for %s: %s", ticker, exc)
+
+    return result
+
+
 def assess_premarket(watchlist: list[str]) -> dict:
-    """Full pre-market assessment combining futures, global markets, and movers."""
+    """Full pre-market assessment combining futures, global markets, movers, and regime."""
     futures = get_futures_snapshot()
     global_mkts = get_global_markets()
     movers = get_premarket_movers(watchlist)
     bias = assess_market_bias(futures)
+    regime = detect_market_regime(futures)
 
     return {
         "market_bias": bias,
+        "market_regime": regime,
         "futures": futures,
         "global_markets": global_mkts,
         "premarket_movers": movers,
@@ -232,7 +309,9 @@ def score_ticker(ticker: str, premarket_data: dict) -> dict:
     """Score a single ticker based on pre-market conditions.
 
     - +/-0.5 for market bias                          (Req 9.6)
-    - Up to +/-2.0 for individual pre-market gaps     (Req 9.6)
+    - Up to +/-2.5 for individual pre-market gaps     (broadened)
+    - +/-1.5 for weekly trend (strong_up / strong_down)
+    - +0.5 / -1.0 for market regime (risk_on / risk_off)
     """
     score = 5.0
     reasons: list[str] = []
@@ -246,33 +325,60 @@ def score_ticker(ticker: str, premarket_data: dict) -> dict:
         score -= 0.5
         reasons.append("Futures bearish")
 
-    # Individual pre-market gap adjustment
+    # Individual pre-market gap adjustment (broadened ranges)
     for mover in premarket_data.get("premarket_movers", []):
         if mover["ticker"] == ticker:
             gap = mover["gap_pct"]
-            if gap > 2:
-                score += 2.0
+            if gap > 3:
+                score += 2.5
                 reasons.append(f"Pre-market gap up {gap:.1f}%")
-            elif gap > 0:
-                score += 1.0
+            elif gap > 1:
+                score += 1.5
                 reasons.append(f"Pre-market up {gap:.1f}%")
-            elif gap < -2:
-                score -= 2.0
+            elif gap < -3:
+                score -= 2.5
                 reasons.append(f"Pre-market gap down {gap:.1f}%")
-            elif gap < 0:
-                score -= 1.0
+            elif gap < -1:
+                score -= 1.5
                 reasons.append(f"Pre-market down {gap:.1f}%")
             break
+
+    # Market regime adjustment
+    regime = premarket_data.get("market_regime", "neutral")
+    if regime == "risk_off":
+        score -= 1.0
+        reasons.append("Market regime: risk_off")
+    elif regime == "risk_on":
+        score += 0.5
+        reasons.append("Market regime: risk_on")
+
+    # Weekly/monthly trend adjustment
+    trend_data = premarket_data.get("_ticker_trends", {}).get(ticker, {})
+    trend_adj = trend_data.get("trend_score_adj", 0.0)
+    if trend_adj != 0.0:
+        score += trend_adj
+        reasons.append(f"Trend: {trend_data.get('trend', 'flat')}")
 
     score = max(0.0, min(10.0, score))
     direction = "CALL" if score >= 6 else "PUT" if score <= 4 else "HOLD"
 
-    return {
+    result = {
         "ticker": ticker,
         "score": round(score, 1),
         "direction": direction,
         "premarket_reasons": reasons,
     }
+
+    # Attach trend data if available
+    if trend_data:
+        result["week_change_pct"] = trend_data.get("week_change_pct", 0.0)
+        result["month_change_pct"] = trend_data.get("month_change_pct", 0.0)
+        result["trend"] = trend_data.get("trend", "flat")
+
+    # Attach market regime
+    result["market_regime"] = regime
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +400,12 @@ def run(watchlist: list[str], config: dict | None = None) -> list[dict]:
     """
     logger.info("Running Pre-Market Agent on %d tickers…", len(watchlist))
     premarket_data = assess_premarket(watchlist)
+
+    # Fetch weekly/monthly trends for each ticker
+    ticker_trends = {}
+    for t in watchlist:
+        ticker_trends[t] = get_ticker_trend(t)
+    premarket_data["_ticker_trends"] = ticker_trends
 
     results = [score_ticker(t, premarket_data) for t in watchlist]
 

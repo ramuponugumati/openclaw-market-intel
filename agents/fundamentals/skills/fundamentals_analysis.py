@@ -107,7 +107,7 @@ def analyze_ticker(ticker: str) -> dict:
             elif upside < -0.10:
                 score -= 1.0
 
-        score = max(0.0, min(10.0, score))
+        score = max(0.0, min(8.0, score))  # capped at 8.0 to prevent fundamentals dominating composite
         direction = "CALL" if score >= 6 else "PUT" if score <= 4 else "HOLD"
 
         return {

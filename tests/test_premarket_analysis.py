@@ -18,6 +18,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from agents.premarket.skills.premarket_analysis import (
     assess_market_bias,
+    detect_market_regime,
+    get_ticker_trend,
     get_futures_snapshot,
     get_global_markets,
     get_premarket_movers,
@@ -117,83 +119,89 @@ class TestScoreTicker:
     """Validates per-ticker pre-market scoring."""
 
     def test_bullish_bias_adds_half_point(self):
-        data = {"market_bias": "bullish", "premarket_movers": []}
+        data = {"market_bias": "bullish", "market_regime": "neutral", "premarket_movers": []}
         result = score_ticker("AAPL", data)
         assert result["score"] == 5.5
         assert result["direction"] == "HOLD"
 
     def test_bearish_bias_subtracts_half_point(self):
-        data = {"market_bias": "bearish", "premarket_movers": []}
+        data = {"market_bias": "bearish", "market_regime": "neutral", "premarket_movers": []}
         result = score_ticker("AAPL", data)
         assert result["score"] == 4.5
         assert result["direction"] == "HOLD"
 
     def test_neutral_bias_no_change(self):
-        data = {"market_bias": "neutral", "premarket_movers": []}
+        data = {"market_bias": "neutral", "market_regime": "neutral", "premarket_movers": []}
         result = score_ticker("AAPL", data)
         assert result["score"] == 5.0
         assert result["direction"] == "HOLD"
 
-    def test_large_gap_up_adds_2(self):
+    def test_large_gap_up_adds_2_5(self):
         data = {
             "market_bias": "neutral",
+            "market_regime": "neutral",
             "premarket_movers": [
                 {"ticker": "NVDA", "gap_pct": 3.5, "signal": "gap_up"},
             ],
         }
         result = score_ticker("NVDA", data)
-        assert result["score"] == 7.0
+        assert result["score"] == 7.5
         assert result["direction"] == "CALL"
 
-    def test_small_gap_up_adds_1(self):
+    def test_small_gap_up_adds_1_5(self):
         data = {
             "market_bias": "neutral",
+            "market_regime": "neutral",
             "premarket_movers": [
                 {"ticker": "NVDA", "gap_pct": 1.5, "signal": "gap_up"},
             ],
         }
         result = score_ticker("NVDA", data)
-        assert result["score"] == 6.0
+        assert result["score"] == 6.5
         assert result["direction"] == "CALL"
 
-    def test_large_gap_down_subtracts_2(self):
+    def test_large_gap_down_subtracts_2_5(self):
         data = {
             "market_bias": "neutral",
+            "market_regime": "neutral",
             "premarket_movers": [
-                {"ticker": "INTC", "gap_pct": -3.0, "signal": "gap_down"},
+                {"ticker": "INTC", "gap_pct": -3.5, "signal": "gap_down"},
             ],
         }
         result = score_ticker("INTC", data)
-        assert result["score"] == 3.0
+        assert result["score"] == 2.5
         assert result["direction"] == "PUT"
 
-    def test_small_gap_down_subtracts_1(self):
+    def test_small_gap_down_subtracts_1_5(self):
         data = {
             "market_bias": "neutral",
+            "market_regime": "neutral",
             "premarket_movers": [
                 {"ticker": "INTC", "gap_pct": -1.2, "signal": "gap_down"},
             ],
         }
         result = score_ticker("INTC", data)
-        assert result["score"] == 4.0
-        assert result["direction"] == "PUT"  # score ≤ 4 → PUT
+        assert result["score"] == 3.5
+        assert result["direction"] == "PUT"
 
     def test_bias_plus_gap_combined(self):
-        """Bullish bias (+0.5) + large gap up (+2.0) = 7.5."""
+        """Bullish bias (+0.5) + large gap up (+2.5) = 8.0."""
         data = {
             "market_bias": "bullish",
+            "market_regime": "neutral",
             "premarket_movers": [
                 {"ticker": "TSLA", "gap_pct": 4.0, "signal": "gap_up"},
             ],
         }
         result = score_ticker("TSLA", data)
-        assert result["score"] == 7.5
+        assert result["score"] == 8.0
         assert result["direction"] == "CALL"
 
     def test_score_clamped_to_0_10(self):
         """Score must never go below 0 or above 10."""
         data = {
             "market_bias": "bearish",
+            "market_regime": "risk_off",
             "premarket_movers": [
                 {"ticker": "X", "gap_pct": -5.0, "signal": "gap_down"},
             ],
@@ -204,6 +212,7 @@ class TestScoreTicker:
     def test_ticker_not_in_movers_gets_only_bias(self):
         data = {
             "market_bias": "bullish",
+            "market_regime": "neutral",
             "premarket_movers": [
                 {"ticker": "OTHER", "gap_pct": 5.0, "signal": "gap_up"},
             ],
@@ -369,6 +378,7 @@ class TestRun:
         assert len(summaries) == 1
         summary = summaries[0]["_premarket_summary"]
         assert "market_bias" in summary
+        assert "market_regime" in summary
         assert "futures" in summary
         assert "global_markets" in summary
         assert "premarket_movers" in summary
@@ -415,10 +425,147 @@ class TestReturnSchema:
     """Validates the returned dict contains all required fields."""
 
     def test_result_has_required_keys(self):
-        data = {"market_bias": "neutral", "premarket_movers": []}
+        data = {"market_bias": "neutral", "market_regime": "neutral", "premarket_movers": []}
         result = score_ticker("AAPL", data)
-        required_keys = {"ticker", "score", "direction", "premarket_reasons"}
+        required_keys = {"ticker", "score", "direction", "premarket_reasons", "market_regime"}
         assert required_keys.issubset(result.keys())
+
+
+# ---------------------------------------------------------------------------
+# Market regime detection
+# ---------------------------------------------------------------------------
+
+class TestMarketRegime:
+    """Validates market regime detection logic."""
+
+    def test_risk_on_when_spy_up_and_vix_low(self):
+        futures = [
+            {"symbol": "ES=F", "name": "S&P 500 Futures", "price": 5000, "change_pct": 0.8, "signal": "bullish"},
+            {"symbol": "^VIX", "name": "VIX", "price": 15.0, "change_pct": -1.0, "signal": "flat"},
+        ]
+        assert detect_market_regime(futures) == "risk_on"
+
+    def test_risk_off_when_spy_down(self):
+        futures = [
+            {"symbol": "ES=F", "name": "S&P 500 Futures", "price": 5000, "change_pct": -0.8, "signal": "bearish"},
+            {"symbol": "^VIX", "name": "VIX", "price": 18.0, "change_pct": 1.0, "signal": "flat"},
+        ]
+        assert detect_market_regime(futures) == "risk_off"
+
+    def test_risk_off_when_vix_above_25(self):
+        futures = [
+            {"symbol": "ES=F", "name": "S&P 500 Futures", "price": 5000, "change_pct": 0.3, "signal": "flat"},
+            {"symbol": "^VIX", "name": "VIX", "price": 28.0, "change_pct": 5.0, "signal": "bearish"},
+        ]
+        assert detect_market_regime(futures) == "risk_off"
+
+    def test_neutral_when_moderate(self):
+        futures = [
+            {"symbol": "ES=F", "name": "S&P 500 Futures", "price": 5000, "change_pct": 0.3, "signal": "flat"},
+            {"symbol": "^VIX", "name": "VIX", "price": 20.0, "change_pct": 0.0, "signal": "flat"},
+        ]
+        assert detect_market_regime(futures) == "neutral"
+
+    def test_risk_off_applies_minus_1_to_score(self):
+        data = {"market_bias": "neutral", "market_regime": "risk_off", "premarket_movers": []}
+        result = score_ticker("AAPL", data)
+        assert result["score"] == 4.0
+        assert result["direction"] == "PUT"
+
+    def test_risk_on_applies_plus_half_to_score(self):
+        data = {"market_bias": "neutral", "market_regime": "risk_on", "premarket_movers": []}
+        result = score_ticker("AAPL", data)
+        assert result["score"] == 5.5
+        assert result["direction"] == "HOLD"
+
+
+# ---------------------------------------------------------------------------
+# Trend analysis
+# ---------------------------------------------------------------------------
+
+class TestTrendAnalysis:
+    """Validates weekly/monthly trend scoring."""
+
+    def test_strong_up_trend_adds_1_5(self):
+        data = {
+            "market_bias": "neutral",
+            "market_regime": "neutral",
+            "premarket_movers": [],
+            "_ticker_trends": {
+                "AAPL": {
+                    "week_change_pct": 6.0,
+                    "month_change_pct": 10.0,
+                    "trend": "strong_up",
+                    "trend_score_adj": 1.5,
+                },
+            },
+        }
+        result = score_ticker("AAPL", data)
+        assert result["score"] == 6.5
+        assert result["direction"] == "CALL"
+        assert result["trend"] == "strong_up"
+
+    def test_strong_down_trend_subtracts_1_5(self):
+        data = {
+            "market_bias": "neutral",
+            "market_regime": "neutral",
+            "premarket_movers": [],
+            "_ticker_trends": {
+                "AAPL": {
+                    "week_change_pct": -7.0,
+                    "month_change_pct": -12.0,
+                    "trend": "strong_down",
+                    "trend_score_adj": -1.5,
+                },
+            },
+        }
+        result = score_ticker("AAPL", data)
+        assert result["score"] == 3.5
+        assert result["direction"] == "PUT"
+        assert result["trend"] == "strong_down"
+
+    def test_flat_trend_no_adjustment(self):
+        data = {
+            "market_bias": "neutral",
+            "market_regime": "neutral",
+            "premarket_movers": [],
+            "_ticker_trends": {
+                "AAPL": {
+                    "week_change_pct": 0.5,
+                    "month_change_pct": 1.0,
+                    "trend": "flat",
+                    "trend_score_adj": 0.0,
+                },
+            },
+        }
+        result = score_ticker("AAPL", data)
+        assert result["score"] == 5.0
+
+    def test_get_ticker_trend_returns_dict_on_failure(self):
+        """When yfinance fails, get_ticker_trend returns flat defaults."""
+        with patch(
+            "agents.premarket.skills.premarket_analysis._fetch_history",
+            return_value=None,
+        ):
+            trend = get_ticker_trend("AAPL")
+        assert trend["trend"] == "flat"
+        assert trend["trend_score_adj"] == 0.0
+
+    def test_get_ticker_trend_strong_up(self):
+        """A 6% weekly gain should produce strong_up trend."""
+        # Build 21-day history with a 6% gain in last 5 days
+        dates = pd.date_range(end=pd.Timestamp.now(), periods=21, freq="B")
+        prices = [100.0] * 16 + [101.0, 102.0, 103.0, 104.0, 106.0]
+        hist = pd.DataFrame({"Close": prices}, index=dates)
+
+        with patch(
+            "agents.premarket.skills.premarket_analysis._fetch_history",
+            return_value=hist,
+        ):
+            trend = get_ticker_trend("AAPL")
+        assert trend["trend"] == "strong_up"
+        assert trend["trend_score_adj"] == 1.5
+        assert trend["week_change_pct"] > 5.0
 
 
 # ---------------------------------------------------------------------------

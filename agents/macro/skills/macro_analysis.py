@@ -179,20 +179,42 @@ def assess_environment(api_key: str) -> dict[str, Any]:
             "reason": "Lower rates boost fintech",
         }
 
-    # High VIX → bearish ETFs
+    # High VIX → bearish ALL sectors (not just ETFs)
     vix_current = vix.get("current", 0)
     if vix_current > 25:
-        sector_signals["etf"] = {
-            "bias": "bearish",
-            "reason": f"VIX elevated at {vix_current:.1f} — fear in market",
-        }
+        for sector_name in ("etf", "tech", "consumer", "fintech"):
+            if sector_name not in sector_signals:
+                sector_signals[sector_name] = {
+                    "bias": "bearish",
+                    "reason": f"VIX elevated at {vix_current:.1f} — fear in market",
+                }
+            else:
+                # Already set (e.g. tech from yields) — keep existing
+                pass
     elif vix_current < 15:
         sector_signals["etf"] = {
             "bias": "bullish",
             "reason": f"VIX low at {vix_current:.1f} — complacency/calm",
         }
 
-    return {"indicators": data, "sector_signals": sector_signals}
+    # Yield curve inversion check: 2Y > 10Y → recession signal
+    yield_2y = data.get("2Y_YIELD", {})
+    yield_2y_current = yield_2y.get("current", 0)
+    yield_10y_current = yield_10y.get("current", 0)
+    yield_curve_inverted = False
+    if yield_2y_current and yield_10y_current and yield_2y_current > yield_10y_current:
+        yield_curve_inverted = True
+
+    # Rising Fed funds rate penalty for growth/tech
+    fed_funds = data.get("FED_FUNDS", {})
+    fed_funds_rising = fed_funds.get("change", 0) > 0
+
+    return {
+        "indicators": data,
+        "sector_signals": sector_signals,
+        "yield_curve_inverted": yield_curve_inverted,
+        "fed_funds_rising": fed_funds_rising,
+    }
 
 
 def score_ticker(ticker: str, env: dict[str, Any]) -> dict:
@@ -200,7 +222,9 @@ def score_ticker(ticker: str, env: dict[str, Any]) -> dict:
     Score a single ticker based on the macro environment.
 
     Applies sector-specific adjustments of ±1.5 when the ticker belongs
-    to a sector with an active signal.
+    to a sector with an active signal.  Also applies:
+    - -1.0 for yield curve inversion (all tickers)
+    - -0.5 for rising Fed funds rate (growth/tech tickers only)
     """
     score = 5.0
     reasons: list[str] = []
@@ -214,6 +238,18 @@ def score_ticker(ticker: str, env: dict[str, Any]) -> dict:
             elif signal["bias"] == "bearish":
                 score -= 1.5
             reasons.append(signal["reason"])
+
+    # Yield curve inversion: 2Y > 10Y → recession signal, penalise all tickers
+    if env.get("yield_curve_inverted", False):
+        score -= 1.0
+        reasons.append("Yield curve inverted (2Y > 10Y) — recession signal")
+
+    # Rising Fed funds rate → penalise growth/tech stocks
+    if env.get("fed_funds_rising", False):
+        growth_tickers = SECTOR_MAP.get("tech", []) + SECTOR_MAP.get("fintech", [])
+        if ticker in growth_tickers:
+            score -= 0.5
+            reasons.append("Rising Fed funds rate hurts growth stocks")
 
     score = max(0.0, min(10.0, score))
     direction = "CALL" if score >= 6 else "PUT" if score <= 4 else "HOLD"
@@ -231,6 +267,8 @@ def score_ticker(ticker: str, env: dict[str, Any]) -> dict:
         "fed_funds": indicators.get("FED_FUNDS", {}).get("current"),
         "cpi": indicators.get("CPI_YOY", {}).get("current"),
         "unemployment": indicators.get("UNEMPLOYMENT", {}).get("current"),
+        "yield_curve_inverted": env.get("yield_curve_inverted", False),
+        "fed_funds_rising": env.get("fed_funds_rising", False),
     }
 
 

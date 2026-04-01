@@ -98,7 +98,7 @@ class TestScoreAndDirection:
         assert result["direction"] == "PUT"
 
     def test_score_clamped_to_0_10(self):
-        """Score must never exceed 10 or go below 0."""
+        """Score must never exceed 8.0 (capped) or go below 0."""
         # Extremely bullish — all bonuses stack
         info = _make_info(
             earningsGrowth=0.50,
@@ -114,7 +114,7 @@ class TestScoreAndDirection:
             return_value=info,
         ):
             result = analyze_ticker("MAX")
-        assert 0 <= result["score"] <= 10
+        assert 0 <= result["score"] <= 8.0
 
         # Extremely bearish — all penalties stack
         info_bear = _make_info(
@@ -129,7 +129,7 @@ class TestScoreAndDirection:
             return_value=info_bear,
         ):
             result_bear = analyze_ticker("MIN")
-        assert 0 <= result_bear["score"] <= 10
+        assert 0 <= result_bear["score"] <= 8.0
 
 
 # ---------------------------------------------------------------------------

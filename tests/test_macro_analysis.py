@@ -37,21 +37,27 @@ def _make_obs(value: str, date: str = "2026-01-15") -> dict:
     return {"date": date, "value": value}
 
 
-def _build_fred_env(yield_change: float = 0.0, vix_current: float = 18.0):
+def _build_fred_env(yield_change: float = 0.0, vix_current: float = 18.0,
+                    yield_2y: float = 4.2, yield_10y: float = 4.5,
+                    fed_funds_change: float = 0.0):
     """
     Build a macro environment dict with controllable yield change and VIX.
     Useful for testing score_ticker without hitting FRED.
     """
+    yield_curve_inverted = yield_2y > yield_10y
+    fed_funds_rising = fed_funds_change > 0
     return {
         "indicators": {
-            "10Y_YIELD": {"current": 4.5, "previous": 4.5 - yield_change, "change": yield_change},
-            "2Y_YIELD": {"current": 4.2, "previous": 4.2, "change": 0.0},
+            "10Y_YIELD": {"current": yield_10y, "previous": yield_10y - yield_change, "change": yield_change},
+            "2Y_YIELD": {"current": yield_2y, "previous": yield_2y, "change": 0.0},
             "VIX": {"current": vix_current, "previous": vix_current, "change": 0.0},
-            "FED_FUNDS": {"current": 5.25, "previous": 5.25, "change": 0.0},
+            "FED_FUNDS": {"current": 5.25, "previous": 5.25 - fed_funds_change, "change": fed_funds_change},
             "CPI_YOY": {"current": 3.2, "previous": 3.1, "change": 0.1},
             "UNEMPLOYMENT": {"current": 3.7, "previous": 3.8, "change": -0.1},
         },
         "sector_signals": {},
+        "yield_curve_inverted": yield_curve_inverted,
+        "fed_funds_rising": fed_funds_rising,
     }
 
 
@@ -191,15 +197,16 @@ class TestHighVixBearishEtf:
         assert result["score"] == 6.5
         assert result["direction"] == "CALL"
 
-    def test_non_etf_unaffected_by_vix(self):
-        """Non-ETF ticker stays at 5.0 regardless of VIX."""
+    def test_non_etf_also_affected_by_high_vix(self):
+        """VIX > 25 now applies bearish to ALL sectors, including tech."""
         env = _build_fred_env(vix_current=30.0)
-        env["sector_signals"]["etf"] = {
+        env["sector_signals"]["tech"] = {
             "bias": "bearish",
-            "reason": "VIX elevated",
+            "reason": "VIX elevated at 30.0 — fear in market",
         }
-        result = score_ticker("AAPL", env)  # tech, not etf
-        assert result["score"] == 5.0
+        result = score_ticker("AAPL", env)
+        assert result["score"] == 3.5
+        assert result["direction"] == "PUT"
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +228,77 @@ class TestSectorMapping:
         expected_etf = ["SPY", "QQQ", "IWM", "DIA", "ARKK"]
         for t in expected_etf:
             assert t in SECTOR_MAP["etf"]
+
+
+# ---------------------------------------------------------------------------
+# Yield curve inversion — 2Y > 10Y applies -1.0 to all tickers
+# ---------------------------------------------------------------------------
+
+class TestYieldCurveInversion:
+    """Validates yield curve inversion penalty."""
+
+    def test_inverted_curve_penalises_all_tickers(self):
+        """When 2Y > 10Y, all tickers get -1.0."""
+        env = _build_fred_env(yield_2y=4.8, yield_10y=4.5)
+        assert env["yield_curve_inverted"] is True
+        result = score_ticker("AAPL", env)
+        assert result["score"] == 4.0
+        assert result["direction"] == "PUT"
+        assert result["yield_curve_inverted"] is True
+
+    def test_normal_curve_no_penalty(self):
+        """When 10Y > 2Y, no inversion penalty."""
+        env = _build_fred_env(yield_2y=4.0, yield_10y=4.5)
+        assert env["yield_curve_inverted"] is False
+        result = score_ticker("AAPL", env)
+        assert result["score"] == 5.0
+
+    def test_inverted_curve_stacks_with_sector_signal(self):
+        """Inversion -1.0 stacks with sector bearish -1.5."""
+        env = _build_fred_env(yield_2y=4.8, yield_10y=4.5)
+        env["sector_signals"]["tech"] = {
+            "bias": "bearish",
+            "reason": "Rising yields",
+        }
+        result = score_ticker("NVDA", env)
+        # 5.0 - 1.5 (sector) - 1.0 (inversion) = 2.5
+        assert result["score"] == 2.5
+        assert result["direction"] == "PUT"
+
+
+# ---------------------------------------------------------------------------
+# Rising Fed funds rate — -0.5 to growth/tech stocks
+# ---------------------------------------------------------------------------
+
+class TestRisingFedFundsRate:
+    """Validates rising Fed funds rate penalty for growth stocks."""
+
+    def test_rising_rates_penalise_tech(self):
+        """Rising Fed funds → tech gets -0.5."""
+        env = _build_fred_env(fed_funds_change=0.25)
+        assert env["fed_funds_rising"] is True
+        result = score_ticker("NVDA", env)
+        assert result["score"] == 4.5
+        assert result["fed_funds_rising"] is True
+
+    def test_rising_rates_penalise_fintech(self):
+        """Rising Fed funds → fintech gets -0.5."""
+        env = _build_fred_env(fed_funds_change=0.25)
+        result = score_ticker("COIN", env)
+        assert result["score"] == 4.5
+
+    def test_rising_rates_no_effect_on_non_growth(self):
+        """Rising Fed funds → non-growth ticker unaffected."""
+        env = _build_fred_env(fed_funds_change=0.25)
+        result = score_ticker("XOM", env)  # not in tech or fintech
+        assert result["score"] == 5.0
+
+    def test_flat_rates_no_penalty(self):
+        """No rate change → no penalty."""
+        env = _build_fred_env(fed_funds_change=0.0)
+        assert env["fed_funds_rising"] is False
+        result = score_ticker("NVDA", env)
+        assert result["score"] == 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -262,9 +340,11 @@ class TestAssessEnvironment:
 
         assert "tech" in env["sector_signals"]
         assert env["sector_signals"]["tech"]["bias"] == "bearish"
+        assert "yield_curve_inverted" in env
+        assert "fed_funds_rising" in env
 
-    def test_high_vix_produces_bearish_etf_signal(self):
-        """VIX > 25 → ETF sector signal is bearish."""
+    def test_high_vix_produces_bearish_signals_for_all_sectors(self):
+        """VIX > 25 → bearish signal for all sectors (not just ETFs)."""
         vals = {
             "DGS10": ["4.50", "4.50"],
             "DGS2": ["4.20", "4.20"],
@@ -279,6 +359,26 @@ class TestAssessEnvironment:
 
         assert "etf" in env["sector_signals"]
         assert env["sector_signals"]["etf"]["bias"] == "bearish"
+        assert "tech" in env["sector_signals"]
+        assert env["sector_signals"]["tech"]["bias"] == "bearish"
+        assert "consumer" in env["sector_signals"]
+        assert env["sector_signals"]["consumer"]["bias"] == "bearish"
+
+    def test_yield_curve_inversion_detected(self):
+        """2Y > 10Y → yield_curve_inverted is True."""
+        vals = {
+            "DGS10": ["4.20", "4.20"],
+            "DGS2": ["4.50", "4.50"],   # 2Y > 10Y
+            "CPIAUCSL": ["3.2", "3.1"],
+            "UNRATE": ["3.7", "3.8"],
+            "FEDFUNDS": ["5.25", "5.25"],
+            "VIXCLS": ["18.0", "17.5"],
+        }
+        with patch("agents.macro.skills.macro_analysis.requests.get",
+                    side_effect=self._mock_fred(vals)):
+            env = assess_environment(FAKE_API_KEY)
+
+        assert env["yield_curve_inverted"] is True
 
     def test_stale_data_handled_gracefully(self):
         """Stale '.' values are skipped; last valid observation used."""
@@ -380,7 +480,8 @@ class TestReturnSchema:
         result = score_ticker("AAPL", env)
         required_keys = {"ticker", "score", "direction", "macro_reasons",
                          "yield_10y", "yield_2y", "vix", "fed_funds",
-                         "cpi", "unemployment"}
+                         "cpi", "unemployment", "yield_curve_inverted",
+                         "fed_funds_rising"}
         assert required_keys.issubset(result.keys())
 
 

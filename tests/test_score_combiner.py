@@ -41,12 +41,12 @@ def _make_agent_result(agent_id: str, entries: list[dict]) -> dict:
 
 
 EQUAL_WEIGHTS = {
-    "fundamentals": 1 / 7,
-    "sentiment": 1 / 7,
-    "macro": 1 / 7,
-    "news": 1 / 7,
-    "technical": 1 / 7,
     "premarket": 1 / 7,
+    "macro": 1 / 7,
+    "technical": 1 / 7,
+    "news": 1 / 7,
+    "sentiment": 1 / 7,
+    "fundamentals": 1 / 7,
     "congress": 1 / 7,
 }
 
