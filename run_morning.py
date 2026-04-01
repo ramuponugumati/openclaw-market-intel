@@ -148,3 +148,10 @@ print(f"\n{'='*60}")
 print(f"✅ Analysis complete — {len(options_picks)} options + {len(stock_picks)} stock picks")
 print(f"   Mode: {horizon} | Run: {run_id}")
 print(f"{'='*60}\n")
+
+# SNS notifications (optional — skipped if not configured)
+try:
+    from notifier import send_morning_alert
+    send_morning_alert(options_picks, stock_picks)
+except Exception as exc:
+    logger.warning("SNS notification skipped: %s", exc)

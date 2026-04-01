@@ -36,6 +36,7 @@ from agents.orchestrator.skills.message_formatter import (
     format_eod_recap,
     split_message,
 )
+from notifier import send_eod_alert
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,9 @@ def run_eod_recap() -> dict:
 
     for msg in messages:
         _send_telegram_message(msg)
+
+    # SNS notifications (optional — skipped if not configured)
+    send_eod_alert(recap_data)
 
     # Send horizon transition notification if applicable
     notification = horizon_result.get("notification")

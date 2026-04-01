@@ -43,6 +43,7 @@ from agents.orchestrator.skills.message_formatter import (
 )
 from tracker import log_morning_picks
 from horizon_manager import get_current_mode
+from notifier import send_morning_alert
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +230,9 @@ def run_morning_analysis() -> dict:
 
     for msg in messages:
         _send_telegram_message(msg)
+
+    # SNS notifications (optional — skipped if not configured)
+    send_morning_alert(options_picks, stock_picks)
 
     logger.info(
         "Morning analysis complete — %d options picks, %d stock picks, "

@@ -138,6 +138,16 @@ Parameters:
     Default: ""
     Description: Telegram chat ID for outbound messages
 
+  PhoneNumber:
+    Type: String
+    Default: ""
+    Description: "E.164 phone number for SNS SMS alerts (e.g. +1XXXXXXXXXX)"
+
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: "Email address for SNS email alert subscription"
+
   LogRetentionDays:
     Type: Number
     Default: 30
@@ -477,6 +487,28 @@ Resources:
 
 
   # -------------------------------------------------------------------------
+  # SNS Topic + Email Subscription (notifications)
+  # -------------------------------------------------------------------------
+  SnsAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${EnvironmentName}-alerts"
+      DisplayName: OpenClaw Alerts
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-alerts"
+        - Key: Project
+          Value: openclaw
+
+  SnsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref SnsAlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # -------------------------------------------------------------------------
   # IAM — Fargate Task Execution Role (pulls image, reads secrets, writes logs)
   # -------------------------------------------------------------------------
   FargateExecutionRole:
@@ -536,6 +568,16 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt FargateLogGroup.Arn
+        - PolicyName: SnsPublish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref SnsAlertTopic
+                  - "*"  # Required for PhoneNumber-based SMS publish
 
   # -------------------------------------------------------------------------
   # IAM — Lambda Execution Role (logs, EFS, secrets, VPC networking)
@@ -586,6 +628,16 @@ Resources:
                   - !GetAtt EodRecapLogGroup.Arn
                   - !Sub "${MorningAnalysisLogGroup.Arn}:*"
                   - !Sub "${EodRecapLogGroup.Arn}:*"
+        - PolicyName: SnsPublish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref SnsAlertTopic
+                  - "*"  # Required for PhoneNumber-based SMS publish
 
 
   # -------------------------------------------------------------------------
@@ -636,6 +688,10 @@ Resources:
               Value: !Ref AllowedUserIds
             - Name: TELEGRAM_CHAT_ID
               Value: !Ref TelegramChatId
+            - Name: SNS_PHONE_NUMBER
+              Value: !Ref PhoneNumber
+            - Name: SNS_TOPIC_ARN
+              Value: !Ref SnsAlertTopic
           Secrets:
             - Name: ANTHROPIC_API_KEY
               ValueFrom: !Sub "${ApiKeysSecret}:ANTHROPIC_API_KEY::"
@@ -724,6 +780,8 @@ Resources:
           ALLOWED_USER_IDS: !Ref AllowedUserIds
           TELEGRAM_CHAT_ID: !Ref TelegramChatId
           SECRETS_ARN: !Ref ApiKeysSecret
+          SNS_PHONE_NUMBER: !Ref PhoneNumber
+          SNS_TOPIC_ARN: !Ref SnsAlertTopic
           ANTHROPIC_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ANTHROPIC_API_KEY}}"
           FINNHUB_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FINNHUB_API_KEY}}"
           FRED_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FRED_API_KEY}}"
@@ -769,6 +827,8 @@ Resources:
           ALLOWED_USER_IDS: !Ref AllowedUserIds
           TELEGRAM_CHAT_ID: !Ref TelegramChatId
           SECRETS_ARN: !Ref ApiKeysSecret
+          SNS_PHONE_NUMBER: !Ref PhoneNumber
+          SNS_TOPIC_ARN: !Ref SnsAlertTopic
           ANTHROPIC_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:ANTHROPIC_API_KEY}}"
           FINNHUB_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FINNHUB_API_KEY}}"
           FRED_API_KEY: !Sub "{{resolve:secretsmanager:${ApiKeysSecret}:SecretString:FRED_API_KEY}}"
@@ -834,6 +894,7 @@ Resources:
 # ===========================================================================
 Conditions:
   HasContainerImage: !Not [!Equals [!Ref ContainerImageUri, ""]]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 # ===========================================================================
 # Outputs
@@ -892,3 +953,9 @@ Outputs:
   EodSchedule:
     Description: EOD recap cron (UTC)
     Value: "cron(15 21 ? * MON-FRI *)"
+
+  SnsAlertTopicArn:
+    Description: SNS topic ARN for email alerts
+    Value: !Ref SnsAlertTopic
+    Export:
+      Name: !Sub "${EnvironmentName}-sns-topic-arn"
