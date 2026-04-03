@@ -24,7 +24,7 @@ if _PROJECT_ROOT not in sys.path:
 
 logger = logging.getLogger(__name__)
 
-MIN_CHANGE_PCT = 5.0
+MIN_CHANGE_PCT = 2.0
 MAX_MOVERS = 100
 
 # ---------------------------------------------------------------------------

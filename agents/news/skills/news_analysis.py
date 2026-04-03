@@ -36,11 +36,37 @@ FINNHUB_TIMEOUT_S = 10
 _limiter = get_finnhub_limiter()
 
 POSITIVE_KEYWORDS = [
-    "beat", "surge", "rally", "upgrade", "record", "growth",
+    "beat", "beats", "surge", "surges", "rally", "rallies", "upgrade", "upgraded",
+    "record", "growth", "profit", "revenue beat", "earnings beat", "outperform",
+    "buy rating", "price target raised", "strong demand", "expansion", "partnership",
+    "acquisition", "dividend increase", "buyback", "share repurchase", "guidance raised",
+    "blowout", "exceeded expectations", "all-time high", "breakout", "momentum",
+    "bullish", "optimistic", "accelerating", "innovation", "market share gain",
 ]
 NEGATIVE_KEYWORDS = [
-    "miss", "crash", "downgrade", "layoff", "lawsuit", "investigation",
+    "miss", "misses", "crash", "crashes", "downgrade", "downgraded", "layoff", "layoffs",
+    "lawsuit", "investigation", "recall", "warning", "guidance cut", "guidance lowered",
+    "revenue miss", "earnings miss", "underperform", "sell rating", "price target cut",
+    "bankruptcy", "default", "fraud", "sec probe", "antitrust", "tariff", "sanctions",
+    "supply chain", "shortage", "decline", "slump", "weak demand", "margin pressure",
+    "bearish", "pessimistic", "headwinds", "restructuring", "writedown", "impairment",
 ]
+EARNINGS_KEYWORDS = [
+    "earnings", "quarterly results", "q1", "q2", "q3", "q4", "fiscal",
+    "revenue", "eps", "guidance", "outlook", "forecast",
+]
+COMPETITOR_MAP: dict[str, list[str]] = {
+    "AAPL": ["MSFT", "GOOGL", "SAMSUNG"],
+    "MSFT": ["AAPL", "GOOGL", "AMZN"],
+    "GOOGL": ["MSFT", "META", "AAPL"],
+    "AMZN": ["WMT", "SHOP", "MSFT"],
+    "META": ["GOOGL", "SNAP", "PINS"],
+    "TSLA": ["RIVN", "GM", "F"],
+    "NVDA": ["AMD", "INTC", "AVGO"],
+    "AMD": ["NVDA", "INTC", "QCOM"],
+    "NFLX": ["DIS", "CMCSA", "WBD"],
+    "CRM": ["MSFT", "ORCL", "NOW"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -71,15 +97,46 @@ def _fetch_news(ticker: str, api_key: str) -> list[dict]:
 
 
 def _score_headline(headline: str) -> float:
-    """Keyword-based sentiment scoring: +1 per positive keyword, -1 per negative."""
+    """Enhanced keyword-based sentiment scoring with weighted categories."""
     h = headline.lower()
-    pos = sum(1 for kw in POSITIVE_KEYWORDS if kw in h)
-    neg = sum(1 for kw in NEGATIVE_KEYWORDS if kw in h)
-    return pos - neg
+    score = 0.0
+    # Strong positive/negative keywords get more weight
+    for kw in POSITIVE_KEYWORDS:
+        if kw in h:
+            score += 1.0
+    for kw in NEGATIVE_KEYWORDS:
+        if kw in h:
+            score -= 1.0
+    return score
+
+
+def _detect_earnings_news(articles: list[dict]) -> dict:
+    """Detect if there's earnings-related news and its sentiment."""
+    earnings_articles = []
+    for article in articles:
+        headline = article.get("headline", "").lower()
+        summary = article.get("summary", "").lower()
+        text = headline + " " + summary
+        if any(kw in text for kw in EARNINGS_KEYWORDS):
+            sent = _score_headline(headline)
+            earnings_articles.append({
+                "headline": article.get("headline", "")[:120],
+                "sentiment": sent,
+            })
+    if not earnings_articles:
+        return {"has_earnings_news": False}
+    avg_sent = sum(a["sentiment"] for a in earnings_articles) / len(earnings_articles)
+    return {
+        "has_earnings_news": True,
+        "earnings_count": len(earnings_articles),
+        "earnings_sentiment": round(avg_sent, 2),
+        "earnings_signal": "positive" if avg_sent > 0 else "negative" if avg_sent < 0 else "neutral",
+        "top_earnings_headline": earnings_articles[0]["headline"],
+    }
 
 
 def analyze_ticker(ticker: str, api_key: str) -> dict:
-    """Score a single ticker based on recent news sentiment."""
+    """Score a single ticker based on recent news sentiment with deep analysis."""
     articles = _fetch_news(ticker, api_key)
 
     if not articles:
@@ -90,6 +147,8 @@ def analyze_ticker(ticker: str, api_key: str) -> dict:
             "headlines": [],
             "news_count": 0,
             "avg_sentiment": 0.0,
+            "earnings_news": {"has_earnings_news": False},
+            "news_volume": "none",
         }
 
     total_sentiment = 0.0
@@ -100,12 +159,31 @@ def analyze_ticker(ticker: str, api_key: str) -> dict:
         total_sentiment += sent
         if sent != 0:
             headlines.append({
-                "headline": headline[:100],
-                "sentiment": "+" if sent > 0 else "-",
+                "headline": headline[:120],
+                "sentiment": "positive" if sent > 0 else "negative",
+                "score": sent,
             })
 
     avg_sentiment = total_sentiment / len(articles)
+
+    # Earnings news detection
+    earnings_data = _detect_earnings_news(articles)
+
+    # News volume signal (high volume of news = something happening)
+    news_volume = "high" if len(articles) >= 8 else "moderate" if len(articles) >= 4 else "low"
+
+    # Base score from sentiment
     score = 5.0 + (avg_sentiment * 1.5)
+
+    # Earnings news bonus/penalty
+    if earnings_data.get("has_earnings_news"):
+        earnings_sent = earnings_data.get("earnings_sentiment", 0)
+        score += earnings_sent * 0.5  # earnings news has extra weight
+
+    # High news volume amplifies the signal
+    if news_volume == "high" and abs(avg_sentiment) > 0.3:
+        score += 0.5 if avg_sentiment > 0 else -0.5
+
     score = max(0.0, min(10.0, score))
     direction = "CALL" if score >= 6 else "PUT" if score <= 4 else "HOLD"
 
@@ -113,9 +191,11 @@ def analyze_ticker(ticker: str, api_key: str) -> dict:
         "ticker": ticker,
         "score": round(score, 1),
         "direction": direction,
-        "headlines": headlines[:3],
+        "headlines": headlines[:5],
         "news_count": len(articles),
         "avg_sentiment": round(avg_sentiment, 2),
+        "earnings_news": earnings_data,
+        "news_volume": news_volume,
     }
 
 

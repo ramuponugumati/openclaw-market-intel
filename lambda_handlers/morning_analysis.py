@@ -228,8 +228,23 @@ def run_morning_analysis() -> dict:
     # Seed EFS config files on first deploy
     _seed_efs_config()
 
+    # Step 0: Build config with API keys from environment
+    config = {
+        "finnhub_api_key": os.environ.get("FINNHUB_API_KEY", ""),
+        "fred_api_key": os.environ.get("FRED_API_KEY", ""),
+    }
+
+    # Step 0b: Scan daily movers and merge into watchlist
+    try:
+        from daily_movers import fetch_and_merge_movers
+        movers_list = fetch_and_merge_movers()
+        logger.info("Daily movers scan: %d movers merged into watchlist", len(movers_list))
+    except Exception as exc:
+        logger.warning("Daily movers scan failed (non-fatal): %s", exc)
+        movers_list = []
+
     # Step 1: Launch all 7 sub-agents
-    launch_statuses = launch_fleet(run_id, run_type="morning_analysis")
+    launch_statuses = launch_fleet(run_id, config=config, run_type="morning_analysis")
     logger.info("Fleet launch statuses: %s", launch_statuses)
 
     # Step 2: Poll for completion (120s timeout, 5s interval)
@@ -278,7 +293,7 @@ def run_morning_analysis() -> dict:
         _send_telegram_message(msg)
 
     # SNS notifications (optional — skipped if not configured)
-    send_morning_alert(options_picks, stock_picks)
+    send_morning_alert(options_picks, stock_picks, movers=movers_list)
 
     logger.info(
         "Morning analysis complete — %d options picks, %d stock picks, "

@@ -174,7 +174,7 @@ def _attach_theses_safe(picks: list[dict]) -> list[dict]:
 
 def enrich_stock_picks(picks: list[dict]) -> list[dict]:
     """
-    Attach Claude-generated theses to stock picks.
+    Attach Claude-generated theses to stock picks (top 10 only to save time).
 
     Args:
         picks: The list returned by :func:`select_stocks`.
@@ -182,4 +182,10 @@ def enrich_stock_picks(picks: list[dict]) -> list[dict]:
     Returns:
         The same list with a ``thesis`` key added to each pick.
     """
-    return _attach_theses_safe(picks)
+    # Only generate theses for top 10 to stay within Lambda timeout
+    top = picks[:10]
+    rest = picks[10:]
+    top = _attach_theses_safe(top)
+    for p in rest:
+        p["thesis"] = ""
+    return top + rest

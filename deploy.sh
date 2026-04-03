@@ -58,7 +58,7 @@ deploy_lambda() {
     # Copy top-level modules
     for f in shared_memory_io.py config.py tracker.py weight_adjuster.py \
              horizon_manager.py notifier.py email_formatter.py thesis_writer.py \
-             rate_limiter.py daily_movers.py; do
+             rate_limiter.py daily_movers.py company_lookup.py; do
         [ -f "$f" ] && cp "$f" "${PACKAGE_DIR}/"
     done
 
