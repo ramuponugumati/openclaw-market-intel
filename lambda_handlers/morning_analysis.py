@@ -49,6 +49,7 @@ from agents.orchestrator.skills.message_formatter import (
 from tracker import log_morning_picks
 from horizon_manager import get_current_mode
 from notifier import send_morning_alert
+from prediction_tracker import save_predictions, load_yesterday_predictions, evaluate_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,22 @@ def run_morning_analysis() -> dict:
 
     # SNS notifications (optional — skipped if not configured)
     send_morning_alert(options_picks, stock_picks, movers=movers_list)
+
+    # Step 9: Evaluate yesterday's predictions vs actual movers
+    prediction_eval = None
+    try:
+        yesterday_preds = load_yesterday_predictions()
+        if yesterday_preds and movers_list:
+            prediction_eval = evaluate_predictions(yesterday_preds, movers_list)
+            logger.info("Yesterday's prediction accuracy: %.1f%%", prediction_eval.get("accuracy_pct", 0))
+    except Exception as exc:
+        logger.warning("Prediction evaluation failed: %s", exc)
+
+    # Step 10: Save today's predictions for tomorrow's comparison
+    try:
+        save_predictions(stock_picks, options_picks, movers_list)
+    except Exception as exc:
+        logger.warning("Failed to save predictions: %s", exc)
 
     logger.info(
         "Morning analysis complete — %d options picks, %d stock picks, "

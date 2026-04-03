@@ -77,6 +77,7 @@ def select_options(combined: list[dict]) -> list[dict]:
 def select_stocks(combined: list[dict]) -> list[dict]:
     """
     Select the Top 20 stock trades, excluding ETFs.
+    Prioritizes daily movers (tickers with recent big moves) over static watchlist.
 
     Ranked by composite score distance from neutral 5.0.  Each pick is
     assigned a trade action:
@@ -85,21 +86,20 @@ def select_stocks(combined: list[dict]) -> list[dict]:
     - WATCH if 4 < composite_score < 6
 
     (Requirements 11.6, 17.4)
-
-    Args:
-        combined: The sorted list returned by
-            :func:`score_combiner.combine`.
-
-    Returns:
-        A list of up to 20 dicts, each containing the combined ticker data
-        plus ``action`` and ``pick_rank`` keys.
     """
     non_etf = [
         t for t in combined if t.get("ticker", "") not in ETF_TICKERS
     ]
 
-    # Already sorted by distance from 5.0 from combine()
-    top_20 = non_etf[:20]
+    # Filter: only include tickers with a score that's actually actionable
+    # (distance from 5.0 > 0.5) to avoid filling slots with neutral picks
+    actionable = [t for t in non_etf if abs(t.get("composite_score", 5.0) - 5.0) > 0.3]
+    if len(actionable) < 20:
+        # Fill remaining with best neutral picks
+        neutral = [t for t in non_etf if t not in actionable]
+        actionable.extend(neutral[:20 - len(actionable)])
+
+    top_20 = actionable[:20]
 
     for i, pick in enumerate(top_20, start=1):
         score = pick.get("composite_score", 5.0)
