@@ -41,13 +41,11 @@
       "NFLX",
       "DIS",
       "CMCSA",
-      "WBD",
-      "PARA"
+      "WBD"
     ],
     "fintech_crypto": [
       "COIN",
       "SOFI",
-      "SQ",
       "HOOD",
       "PYPL",
       "MA",
@@ -222,7 +220,6 @@
     "NVDA",
     "ORCL",
     "PANW",
-    "PARA",
     "PEP",
     "PFE",
     "PG",
@@ -243,7 +240,6 @@
     "SOFI",
     "SOXX",
     "SPY",
-    "SQ",
     "STX",
     "TMO",
     "TSLA",

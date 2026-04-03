@@ -40,6 +40,26 @@ from notifier import send_eod_alert
 
 logger = logging.getLogger(__name__)
 
+
+def _seed_efs_config() -> None:
+    """Copy bundled config files to EFS if they don't exist yet (first deploy)."""
+    import shutil
+
+    shared_path = Path(os.environ.get("SHARED_MEMORY_PATH", "/mnt/shared_memory"))
+    bundled_path = Path(_PROJECT_ROOT) / "shared_memory"
+
+    for subdir in ["config", "weights", "runs", "picks"]:
+        (shared_path / subdir).mkdir(parents=True, exist_ok=True)
+
+    for rel in ["config/watchlist.json", "config/horizon_state.json", "weights/learned_weights.json"]:
+        dest = shared_path / rel
+        src = bundled_path / rel
+        if not dest.exists() and src.exists():
+            shutil.copy2(str(src), str(dest))
+            logger.info("Seeded %s to EFS", rel)
+
+logger = logging.getLogger(__name__)
+
 # Retry configuration (Requirement 13.5)
 LAMBDA_RETRY_DELAY_S = 60
 LAMBDA_MAX_RETRIES = 1
@@ -185,6 +205,9 @@ def run_eod_recap() -> dict:
         Dict summarizing the recap results.
     """
     logger.info("Starting EOD recap...")
+
+    # Seed EFS config files on first deploy
+    _seed_efs_config()
 
     # Step 1: Evaluate morning picks
     eod_results = evaluate_end_of_day()

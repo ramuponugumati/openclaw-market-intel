@@ -36,6 +36,7 @@ from agents.orchestrator.skills.pick_selector import (
     select_options,
     select_stocks,
     enrich_options_picks,
+    enrich_stock_picks,
 )
 from agents.orchestrator.skills.message_formatter import (
     format_morning_analysis,
@@ -44,6 +45,41 @@ from agents.orchestrator.skills.message_formatter import (
 from tracker import log_morning_picks
 from horizon_manager import get_current_mode
 from notifier import send_morning_alert
+
+logger = logging.getLogger(__name__)
+
+
+def _seed_efs_config() -> None:
+    """Copy bundled config files to EFS if they don't exist yet (first deploy)."""
+    import json
+    import shutil
+
+    shared_path = Path(os.environ.get("SHARED_MEMORY_PATH", "/mnt/shared_memory"))
+    bundled_path = Path(_PROJECT_ROOT) / "shared_memory"
+
+    for subdir in ["config", "weights", "runs", "picks"]:
+        (shared_path / subdir).mkdir(parents=True, exist_ok=True)
+
+    # Seed watchlist
+    watchlist_dest = shared_path / "config" / "watchlist.json"
+    watchlist_src = bundled_path / "config" / "watchlist.json"
+    if not watchlist_dest.exists() and watchlist_src.exists():
+        shutil.copy2(str(watchlist_src), str(watchlist_dest))
+        logger.info("Seeded watchlist.json to EFS")
+
+    # Seed horizon state
+    horizon_dest = shared_path / "config" / "horizon_state.json"
+    horizon_src = bundled_path / "config" / "horizon_state.json"
+    if not horizon_dest.exists() and horizon_src.exists():
+        shutil.copy2(str(horizon_src), str(horizon_dest))
+        logger.info("Seeded horizon_state.json to EFS")
+
+    # Seed weights
+    weights_dest = shared_path / "weights" / "learned_weights.json"
+    weights_src = bundled_path / "weights" / "learned_weights.json"
+    if not weights_dest.exists() and weights_src.exists():
+        shutil.copy2(str(weights_src), str(weights_dest))
+        logger.info("Seeded learned_weights.json to EFS")
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +220,9 @@ def run_morning_analysis() -> dict:
     """
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     logger.info("Starting morning analysis — run_id: %s", run_id)
+
+    # Seed EFS config files on first deploy
+    _seed_efs_config()
 
     # Step 1: Launch all 7 sub-agents
     launch_statuses = launch_fleet(run_id, run_type="morning_analysis")

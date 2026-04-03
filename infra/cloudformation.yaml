@@ -165,6 +165,14 @@ Parameters:
 
 
 # ===========================================================================
+# Conditions
+# ===========================================================================
+Conditions:
+  HasContainerImage: !Not [!Equals [!Ref ContainerImageUri, ""]]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+
+# ===========================================================================
 # Resources
 # ===========================================================================
 Resources:
@@ -924,13 +932,6 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt EodRecapRule.Arn
 
-
-# ===========================================================================
-# Conditions
-# ===========================================================================
-Conditions:
-  HasContainerImage: !Not [!Equals [!Ref ContainerImageUri, ""]]
-  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 # ===========================================================================
 # Outputs
