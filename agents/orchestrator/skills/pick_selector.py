@@ -162,9 +162,13 @@ def _attach_theses_safe(picks: list[dict]) -> list[dict]:
     """Attach Claude theses to picks, failing silently on any error."""
     try:
         from thesis_writer import attach_theses
-        return attach_theses(picks)
+        logger.info("Generating Claude theses for %d picks...", len(picks))
+        result = attach_theses(picks)
+        theses_count = sum(1 for p in result if p.get("thesis"))
+        logger.info("Claude theses generated: %d/%d picks", theses_count, len(picks))
+        return result
     except Exception as exc:
-        logger.debug("Thesis attachment skipped: %s", exc)
+        logger.warning("Thesis attachment skipped: %s", exc)
         return picks
 
 

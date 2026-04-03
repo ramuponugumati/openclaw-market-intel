@@ -16,6 +16,14 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+# Import company lookup
+try:
+    from company_lookup import get_company_name, get_fortune_rank, get_fortune_badge
+except ImportError:
+    def get_company_name(t): return t
+    def get_fortune_rank(t): return 0
+    def get_fortune_badge(t): return ""
+
 # ---------------------------------------------------------------------------
 # Color palette
 # ---------------------------------------------------------------------------
@@ -131,15 +139,19 @@ def _build_options_section(options_picks: list[dict]) -> str:
     rows = ""
     for i, pick in enumerate(options_picks, 1):
         ticker = pick.get("ticker", "???")
+        company = get_company_name(ticker)
+        fortune = get_fortune_badge(ticker)
         direction = pick.get("direction", "HOLD")
         score = _safe_float(pick.get("composite_score", 5.0))
         confidence = pick.get("confidence", "LOW")
         thesis = pick.get("thesis", "")
         border_color = _direction_color(direction)
 
+        fortune_html = f'<span style="display:inline-block;padding:1px 5px;border-radius:8px;background:#2a2a4a;color:{YELLOW};font-size:10px;margin-left:4px;">{fortune}</span>' if fortune else ""
+
         rows += f"""<tr>
 <td style="padding:10px 12px;border-left:4px solid {border_color};color:{TEXT_COLOR};font-size:14px;border-bottom:1px solid {BORDER_COLOR};">{i}</td>
-<td style="padding:10px 8px;color:#fff;font-weight:bold;font-size:14px;border-bottom:1px solid {BORDER_COLOR};">{ticker}</td>
+<td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};"><span style="color:#fff;font-weight:bold;font-size:14px;">{ticker}</span><br><span style="color:{TEXT_MUTED};font-size:11px;">{company}</span>{fortune_html}</td>
 <td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};">{_direction_label(direction)}</td>
 <td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};">{_score_badge(score)}</td>
 <td style="padding:10px 8px;color:{TEXT_COLOR};font-size:13px;border-bottom:1px solid {BORDER_COLOR};">{confidence}</td>
@@ -189,6 +201,8 @@ def _build_stocks_section(stock_picks: list[dict]) -> str:
     rows = ""
     for i, pick in enumerate(stock_picks, 1):
         ticker = pick.get("ticker", "???")
+        company = get_company_name(ticker)
+        fortune = get_fortune_badge(ticker)
         action = pick.get("action", pick.get("direction", "WATCH"))
         score = _safe_float(pick.get("composite_score", 5.0))
         confidence = pick.get("confidence", "LOW")
@@ -196,9 +210,11 @@ def _build_stocks_section(stock_picks: list[dict]) -> str:
         thesis = pick.get("thesis", "")
         border_color = _direction_color(action)
 
+        fortune_html = f'<span style="display:inline-block;padding:1px 5px;border-radius:8px;background:#2a2a4a;color:{YELLOW};font-size:10px;margin-left:4px;">{fortune}</span>' if fortune else ""
+
         rows += f"""<tr>
 <td style="padding:10px 12px;border-left:4px solid {border_color};color:{TEXT_COLOR};font-size:14px;border-bottom:1px solid {BORDER_COLOR};">{i}</td>
-<td style="padding:10px 8px;color:#fff;font-weight:bold;font-size:14px;border-bottom:1px solid {BORDER_COLOR};">{ticker}</td>
+<td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};"><span style="color:#fff;font-weight:bold;font-size:14px;">{ticker}</span><br><span style="color:{TEXT_MUTED};font-size:11px;">{company}</span>{fortune_html}</td>
 <td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};">{_direction_label(action)}</td>
 <td style="padding:10px 8px;border-bottom:1px solid {BORDER_COLOR};">{_score_badge(score)}</td>
 <td style="padding:10px 8px;color:{TEXT_COLOR};font-size:13px;border-bottom:1px solid {BORDER_COLOR};">{confidence}</td>

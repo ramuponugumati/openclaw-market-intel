@@ -23,6 +23,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Configure logging for Lambda — default is WARNING, we need INFO
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+logging.getLogger().setLevel(logging.INFO)
+
 # Ensure project root is on sys.path for imports
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
 if _PROJECT_ROOT not in sys.path:
@@ -60,12 +64,12 @@ def _seed_efs_config() -> None:
     for subdir in ["config", "weights", "runs", "picks"]:
         (shared_path / subdir).mkdir(parents=True, exist_ok=True)
 
-    # Seed watchlist
+    # Seed watchlist (always update to latest bundled version)
     watchlist_dest = shared_path / "config" / "watchlist.json"
     watchlist_src = bundled_path / "config" / "watchlist.json"
-    if not watchlist_dest.exists() and watchlist_src.exists():
+    if watchlist_src.exists():
         shutil.copy2(str(watchlist_src), str(watchlist_dest))
-        logger.info("Seeded watchlist.json to EFS")
+        logger.info("Synced watchlist.json to EFS")
 
     # Seed horizon state
     horizon_dest = shared_path / "config" / "horizon_state.json"
@@ -244,8 +248,11 @@ def run_morning_analysis() -> dict:
     options_picks = select_options(combined)
     stock_picks = select_stocks(combined)
 
-    # Step 5: Enrich options picks with specific contracts
+    # Step 5: Enrich options picks with specific contracts + Claude thesis
     options_picks = enrich_options_picks(options_picks)
+
+    # Step 5b: Enrich stock picks with Claude thesis
+    stock_picks = enrich_stock_picks(stock_picks)
 
     # Step 6: Log picks via tracker
     horizon = get_current_mode()

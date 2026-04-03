@@ -110,7 +110,7 @@ def generate_thesis(pick: dict) -> str:
         return ""
 
     except Exception as exc:
-        logger.debug("Thesis generation failed for %s: %s", ticker, exc)
+        logger.warning("Thesis generation failed for %s: %s", ticker, exc)
         return ""
 
 
@@ -131,7 +131,7 @@ def attach_theses(picks: list[dict]) -> list[dict]:
         try:
             pick["thesis"] = generate_thesis(pick)
         except Exception as exc:
-            logger.debug("Thesis attachment failed for %s: %s",
-                         pick.get("ticker", "???"), exc)
+            logger.warning("Thesis attachment failed for %s: %s",
+                           pick.get("ticker", "???"), exc)
             pick["thesis"] = ""
     return picks
