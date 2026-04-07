@@ -71,11 +71,22 @@ def generate_thesis(pick: dict) -> str:
         f"You are a market analyst summarizing agent findings. "
         f"Explain why {ticker} scored {score:.1f} ({direction}) using ONLY "
         f"the detailed agent data below. Reference specific numbers from the agents "
-        f"(earnings growth %, RSI, analyst recommendations, etc). "
+        f"(earnings growth %, RSI, analyst recommendations, Reddit buzz, etc). "
         f"Do NOT add opinions, predictions, or external knowledge. "
         f"2-3 sentences. First sentence: the bullish case. "
-        f"Second sentence: any bearish signals or cautions.\n\n"
-        f"Ticker: {ticker}\n"
+        f"Second sentence: any bearish signals or cautions."
+    )
+
+    # Add yesterday's prediction context if available
+    yesterday_context = pick.get("_yesterday_context", "")
+    if yesterday_context:
+        prompt += (
+            f"\n\nYesterday's track record for {ticker}: {yesterday_context}. "
+            f"Factor this into your analysis — if we were wrong yesterday, explain what changed."
+        )
+
+    prompt += (
+        f"\n\nTicker: {ticker}\n"
         f"Composite Score: {score:.1f} / 10\n"
         f"Direction: {direction}\n"
         f"Confidence: {confidence}\n"

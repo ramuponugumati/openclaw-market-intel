@@ -175,7 +175,7 @@ def send_ses_email(subject: str, html_body: str, plain_body: str = "") -> bool:
 # Morning alert
 # ---------------------------------------------------------------------------
 
-def send_morning_alert(options_picks: list, stock_picks: list, movers: list | None = None) -> None:
+def send_morning_alert(options_picks: list, stock_picks: list, movers: list | None = None, prediction_eval: dict | None = None) -> None:
     """
     Format and send SMS + HTML email for the morning analysis.
 
@@ -205,6 +205,7 @@ def send_morning_alert(options_picks: list, stock_picks: list, movers: list | No
                 options_picks or [],
                 stock_picks or [],
                 movers=movers,
+                prediction_eval=prediction_eval,
             )
             ses_sent = send_ses_email("OpenClaw Morning Picks", html)
 

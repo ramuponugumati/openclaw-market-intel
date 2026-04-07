@@ -112,6 +112,7 @@ def format_morning_email_html(
     options_picks: list[dict],
     stock_picks: list[dict],
     movers: list[dict] | None = None,
+    prediction_eval: dict | None = None,
 ) -> str:
     try:
         parts = []
@@ -120,6 +121,29 @@ def format_morning_email_html(
         parts.append(f"""<tr><td style="padding:24px 0 0;">
 <p style="margin:0 0 4px;font-size:20px;font-weight:700;">🦀 OpenClaw Morning Picks</p>
 <p style="margin:0 0 16px;font-size:13px;color:{GRAY};">{_today()}</p>
+</td></tr>""")
+
+        # Yesterday's report card (if available)
+        if prediction_eval and prediction_eval.get("total_predictions", 0) > 0:
+            acc = prediction_eval.get("accuracy_pct", 0)
+            correct = prediction_eval.get("total_correct", 0)
+            total = prediction_eval.get("total_predictions", 0)
+            correct_buys = prediction_eval.get("correct_buys", [])
+            wrong_buys = prediction_eval.get("wrong_buys", [])
+            missed = prediction_eval.get("missed_movers", [])
+
+            acc_color = GREEN if acc >= 60 else RED if acc < 40 else GRAY
+            report = f'<span style="color:{acc_color};font-weight:700;">{acc:.0f}%</span> ({correct}/{total} correct)'
+            if correct_buys:
+                report += f'. Got it right: {", ".join(correct_buys[:5])}'
+            if wrong_buys:
+                report += f'. Missed: {", ".join(wrong_buys[:5])}'
+            if missed:
+                report += f'. Movers we didn\'t pick: {", ".join(missed[:5])}'
+
+            parts.append(f"""<tr><td style="padding:0 0 16px;">
+<p style="margin:0 0 6px;font-size:15px;font-weight:700;">📊 Yesterday's Report Card</p>
+<p style="margin:0;font-size:13px;line-height:1.6;">{report}</p>
 </td></tr>""")
 
         # Top movers section

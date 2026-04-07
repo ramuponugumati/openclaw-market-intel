@@ -264,6 +264,33 @@ def run_morning_analysis() -> dict:
     options_picks = select_options(combined)
     stock_picks = select_stocks(combined)
 
+    # Step 4b: Evaluate yesterday's predictions and inject context into picks
+    prediction_eval = None
+    try:
+        yesterday_preds = load_yesterday_predictions()
+        if yesterday_preds and movers_list:
+            prediction_eval = evaluate_predictions(yesterday_preds, movers_list)
+            logger.info("Yesterday's prediction accuracy: %.1f%%", prediction_eval.get("accuracy_pct", 0))
+
+            # Inject yesterday's context into each pick for Claude
+            correct_buys = set(prediction_eval.get("correct_buys", []))
+            wrong_buys = set(prediction_eval.get("wrong_buys", []))
+            correct_sells = set(prediction_eval.get("correct_sells", []))
+            wrong_sells = set(prediction_eval.get("wrong_sells", []))
+
+            for pick in options_picks + stock_picks:
+                tk = pick.get("ticker", "")
+                if tk in correct_buys:
+                    pick["_yesterday_context"] = f"We correctly predicted BUY yesterday and it went up"
+                elif tk in wrong_buys:
+                    pick["_yesterday_context"] = f"We predicted BUY yesterday but it dropped — be cautious"
+                elif tk in correct_sells:
+                    pick["_yesterday_context"] = f"We correctly predicted SELL yesterday and it fell"
+                elif tk in wrong_sells:
+                    pick["_yesterday_context"] = f"We predicted SELL yesterday but it rallied — reassess"
+    except Exception as exc:
+        logger.warning("Prediction evaluation failed: %s", exc)
+
     # Step 5: Enrich options picks with specific contracts + Claude thesis
     options_picks = enrich_options_picks(options_picks)
 
@@ -294,19 +321,9 @@ def run_morning_analysis() -> dict:
         _send_telegram_message(msg)
 
     # SNS notifications (optional — skipped if not configured)
-    send_morning_alert(options_picks, stock_picks, movers=movers_list)
+    send_morning_alert(options_picks, stock_picks, movers=movers_list, prediction_eval=prediction_eval)
 
-    # Step 9: Evaluate yesterday's predictions vs actual movers
-    prediction_eval = None
-    try:
-        yesterday_preds = load_yesterday_predictions()
-        if yesterday_preds and movers_list:
-            prediction_eval = evaluate_predictions(yesterday_preds, movers_list)
-            logger.info("Yesterday's prediction accuracy: %.1f%%", prediction_eval.get("accuracy_pct", 0))
-    except Exception as exc:
-        logger.warning("Prediction evaluation failed: %s", exc)
-
-    # Step 10: Save today's predictions for tomorrow's comparison
+    # Step 9: Save today's predictions for tomorrow's comparison
     try:
         save_predictions(stock_picks, options_picks, movers_list)
     except Exception as exc:
