@@ -1,49 +1,85 @@
 # 🦀 OpenClaw Market Intel
 
-Multi-agent market intelligence system that analyzes 36 tickers across 8 dimensions and delivers actionable stock + options picks via Telegram every morning.
+Multi-agent market intelligence system that analyzes 170+ tickers across 8 dimensions, scrapes Reddit (WSB, r/investing, r/stocks) + CNBC for sentiment, generates Claude AI theses via Bedrock, and delivers actionable picks via SMS + HTML email every morning.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    DATA["🌐 Market Data
-    ─────────────
-    yfinance
-    Finnhub
-    FRED
-    Capitol Trades"] --> AGENTS
+    subgraph DATA["🌐 Data Sources"]
+        direction TB
+        D1["📊 yfinance
+        Price · Volume · Options"]
+        D2["📰 Finnhub
+        News · Sentiment"]
+        D3["🏛️ FRED
+        Yields · VIX · CPI"]
+        D4["🏛️ Capitol Trades
+        Congress Trading"]
+        D5["🤖 Reddit
+        WSB · Investing · Stocks"]
+        D6["📺 CNBC · MarketWatch
+        RSS Headlines"]
+        D7["📈 Daily Movers
+        S&P 500 Scanner"]
+    end
+
+    DATA --> AGENTS
 
     subgraph AGENTS["🔍 8 Analysis Agents"]
         direction TB
-        A1[Fundamentals]
-        A2[Sentiment]
-        A3[Macro]
-        A4[News]
-        A5[Technical]
-        A6[Pre-Market]
-        A7[Congress]
-        A8[Options]
+        A1["Pre-Market 25%
+        Futures · Regime · Trends"]
+        A2["Macro 20%
+        VIX · Yields · Fed"]
+        A3["Technical 20%
+        RSI · SMA · Candles"]
+        A4["News 12%
+        Reddit + CNBC + Finnhub"]
+        A5["Sentiment 8%
+        Social Buzz · Analysts"]
+        A6["Fundamentals 8%
+        PE · Earnings (cap 8.0)"]
+        A7["Congress 7%
+        Politician Trades"]
+        A8["Options Chain
+        Contract Selection"]
     end
 
-    AGENTS --> ORCH["🧠 Orchestrator
-    ─────────────
-    Combine Scores
-    Select Picks
-    Format Message"]
+    AGENTS --> ORCH
 
-    ORCH --> DELIVER["📱 Telegram
-    ─────────────
-    Top 5 Options
-    Top 10 Stocks
-    EOD Recap"]
+    subgraph ORCH["🧠 Orchestrator"]
+        direction TB
+        O1["Score Combiner
+        Weighted Composite"]
+        O2["Pick Selector
+        Top 8 Options + Top 20 Stocks"]
+        O3["🤖 Claude Thesis
+        Bedrock Sonnet 4.6"]
+    end
 
-    ORCH --> LEARN["📈 Learning
-    ─────────────
-    Track Accuracy
-    Adjust Weights
-    Evolve Strategy"]
+    ORCH --> DELIVER
 
-    LEARN -.->|improve| ORCH
+    subgraph DELIVER["📬 Delivery"]
+        direction TB
+        DEL1["📱 SMS via SNS"]
+        DEL2["📧 HTML Email via SES"]
+        DEL3["💬 Telegram Bot"]
+    end
+
+    ORCH --> LEARN
+
+    subgraph LEARN["📈 Learning Loop"]
+        direction TB
+        L1["Prediction Tracker
+        Save → Compare → Score"]
+        L2["Weight Adjuster
+        Auto-rebalance Agents"]
+        L3["Horizon Manager
+        Day → Swing → Long"]
+    end
+
+    LEARN -.->|next day| AGENTS
 
     style DATA fill:#e8f4fd,stroke:#2196F3
     style AGENTS fill:#f3e5f5,stroke:#9C27B0
@@ -55,214 +91,139 @@ flowchart LR
 ### How It Works
 
 ```
-  5:30 AM PST                                              You
+  5:30 AM PST — Morning Analysis
+  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │ EventBrg │───▶│ Scan S&P │───▶│ 8 Agents │───▶│ Claude   │───▶│ SMS +    │
+  │ cron     │    │ movers + │    │ analyze  │    │ thesis   │    │ Email    │
+  └──────────┘    │ Reddit   │    │ 170+ tkrs│    │ per pick │    └──────────┘
+                  └──────────┘    └──────────┘    └──────────┘
+
+  1:15 PM PST — EOD Recap
   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │ Schedule  │───▶│ 8 Agents │───▶│  Score   │───▶│ Telegram │
-  │ (cron)   │    │ analyze  │    │ + Pick   │    │ message  │
-  └──────────┘    │ 36 tickers│    │ Top 15   │    └──────────┘
+  │ EventBrg │───▶│ Compare  │───▶│ Adjust   │───▶│ Recap    │
+  │ cron     │    │ predicted│    │ weights  │    │ email    │
+  └──────────┘    │ vs actual│    │ + learn  │    └──────────┘
                   └──────────┘    └──────────┘
-                                                   
-  1:15 PM PST                                              You
-  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │ Schedule  │───▶│ Evaluate │───▶│  Learn   │───▶│ EOD Recap│
-  │ (cron)   │    │ vs actual│    │ + adjust │    │ message  │
-  └──────────┘    └──────────┘    └──────────┘    └──────────┘
 ```
+
 
 ## Scoring System
 
-Each agent scores every ticker on a 0-10 scale (5.0 = neutral). The orchestrator combines them using self-adjusting weights:
+Each agent scores every ticker 0-10 (5.0 = neutral). Pre-market and macro get highest weight for day trading:
 
-| Agent | Weight | Data Source | What It Measures |
+| Agent | Weight | Data Sources | What It Measures |
 |-------|--------|-------------|-----------------|
-| Fundamentals | 18% | yfinance | PE, earnings growth, revenue, analyst targets |
-| Sentiment | 15% | Finnhub | Reddit/Twitter buzz, analyst buy/sell ratios |
-| Technical | 15% | yfinance | RSI, SMA crossovers, volume trends |
-| News | 15% | Finnhub | Headline keyword sentiment (trailing 3 days) |
-| Congress | 15% | Capitol Trades | Politician stock trades (STOCK Act filings) |
-| Pre-Market | 12% | yfinance | Futures, global indices, pre-market gaps |
-| Macro/Fed | 10% | FRED API | 10Y yield, VIX, Fed funds, CPI, unemployment |
+| Pre-Market | 25% | yfinance | Futures, market regime (risk_on/off), weekly/monthly trends, pre-market gaps |
+| Macro/Fed | 20% | FRED | 10Y yield, VIX (>25 = bearish all), Fed funds, yield curve, CPI |
+| Technical | 20% | yfinance | RSI, SMA20/50, golden cross, volume, yesterday's candle + impact |
+| News | 12% | Reddit (WSB/investing/stocks) + CNBC + Finnhub | Headline sentiment, earnings news, Reddit buzz (2x weight) |
+| Sentiment | 8% | Finnhub | Analyst buy/sell ratios, social buzz scores |
+| Fundamentals | 8% | yfinance | PE, earnings growth, revenue, analyst targets (capped at 8.0) |
+| Congress | 7% | Capitol Trades | Politician stock trades (STOCK Act filings) |
 
-**Composite Score → Action:**
-- 8-10: Strong BUY/CALL 🟢
-- 6-8: Moderate BUY 🟢
-- 4-6: HOLD/WATCH 🟡
-- 2-4: SELL/PUT 🔴
-- 0-2: Strong SHORT 🔴
+**Score → Action:**
+- 7-10: BUY / CALL 🟢
+- 5-7: WATCH 🟡
+- 0-5: SELL / PUT 🔴
 
-## Quick Start (Local)
-
-### Prerequisites
-- Python 3.10+
-- Free API keys: [Finnhub](https://finnhub.io), [FRED](https://fred.stlouisfed.org/docs/api/api_key.html)
-
-### Install
+## Quick Start
 
 ```bash
-# 1. Clone
 git clone https://github.com/ramuponugumati/openclaw-market-intel.git
 cd openclaw-market-intel
-
-# 2. Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# 3. Install dependencies
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Configure API keys
-cp .env.example .env
-# Edit .env and add your FINNHUB_API_KEY and FRED_API_KEY
-
-# 5. Run morning analysis
-python run_morning.py
+cp .env.example .env  # add FINNHUB_API_KEY and FRED_API_KEY
+python3 run_morning.py
 ```
 
-That's it. You'll see the full analysis output with Top 5 options + Top 10 stock picks.
-
-### Run Tests
-
-```bash
-python -m pytest tests/ -v
-```
-
-### Telegram Bot (Optional)
-
-```bash
-# 1. Create a bot via @BotFather on Telegram, get the token
-# 2. Get your user ID via @userinfobot on Telegram
-# 3. Add to .env:
-#    TELEGRAM_BOT_TOKEN=your_token
-#    ALLOWED_USER_IDS=your_user_id
-
-# 4. Start the bot
-python -m telegram_bot.run_bot
-```
-
-Commands: `/picks`, `/analyze NVDA`, `/congress`, `/add TICKER`, `/remove TICKER`, `/help`
-
-
-## Deploy to AWS
-
-### AWS Deployment
+## AWS Deployment (Live)
 
 ```mermaid
 flowchart TB
-    subgraph AWS["☁️ AWS Cloud"]
+    subgraph AWS["☁️ AWS us-west-1"]
         EB["⏰ EventBridge
         Mon-Fri cron"] --> L1["λ Morning Analysis
-        5:30 AM PST"] & L2["λ EOD Recap
+        5:30 AM PST · 2GB · 15min"] & L2["λ EOD Recap
         1:15 PM PST"]
-        
+
         L1 & L2 <--> EFS["💾 EFS
-        Shared Memory"]
-        
-        F["🐳 Fargate
-        Telegram Bot"] <--> EFS
-        
-        SM["🔐 Secrets Manager
-        API Keys"] --> F & L1 & L2
+        Watchlist · Weights
+        Predictions · Picks"]
+
+        L1 -->|Claude| BED["🤖 Bedrock us-west-2
+        Sonnet 4.6 Thesis"]
+
+        SM["🔐 Secrets Manager"] --> L1 & L2
+        SNS["📱 SNS SMS"] --> PHONE["📱 Phone"]
+        SES["📧 SES us-east-1"] --> EMAIL["📧 Email"]
+        L1 --> SNS & SES
     end
 
-    F & L1 & L2 -->|HTTPS| API["🌐 External APIs
-    Finnhub · FRED · yfinance · Telegram"]
+    L1 -->|HTTPS| EXT["🌐 Reddit · CNBC
+    yfinance · Finnhub · FRED"]
 
     style AWS fill:#f0f7ff,stroke:#2196F3
     style EFS fill:#fff3e0,stroke:#FF9800
-    style SM fill:#fce4ec,stroke:#E91E63
+    style BED fill:#e8f5e9,stroke:#4CAF50
 ```
 
-### Deploy Steps
+Stack: `openclaw-market-intel` in account `073369242087`
 
 ```bash
-# 1. Deploy CloudFormation stack
-aws cloudformation deploy \
-  --template-file infra/cloudformation.yaml \
-  --stack-name openclaw-market-intel \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides \
-    FinnhubApiKey=YOUR_KEY \
-    FredApiKey=YOUR_KEY \
-    TelegramBotToken=YOUR_TOKEN \
-    TelegramChatId=YOUR_CHAT_ID \
-    AllowedUserIds=YOUR_USER_ID
+# Deploy infrastructure
+aws cloudformation deploy --template-file infra/cloudformation.yaml \
+  --stack-name openclaw-market-intel --capabilities CAPABILITY_NAMED_IAM \
+  --profile ramuponu-admin --region us-west-1 --tags Project=openclaw
 
-# 2. Build and push Docker image
-ECR_URI=$(aws cloudformation describe-stacks \
-  --stack-name openclaw-market-intel \
-  --query 'Stacks[0].Outputs[?OutputKey==`EcrRepositoryUri`].OutputValue' \
-  --output text)
+# Deploy Lambda code
+./deploy.sh lambda
 
-aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_URI
-docker build -t openclaw-market-intel .
-docker tag openclaw-market-intel:latest $ECR_URI:latest
-docker push $ECR_URI:latest
-
-# 3. Update Fargate service to pull new image
-aws ecs update-service \
-  --cluster openclaw-market-intel-cluster \
-  --service openclaw-market-intel-service \
-  --force-new-deployment
+# Test invoke
+aws lambda invoke --function-name openclaw-market-intel-morning-analysis \
+  --profile ramuponu-admin --region us-west-1 --payload '{}' /tmp/out.json
 ```
-
-### Estimated AWS Cost
-
-| Resource | Monthly Cost |
-|----------|-------------|
-| Fargate (256 CPU, 512 MB, 24/7) | ~$9 |
-| Lambda (2 invocations/day, 5 min each) | ~$0.10 |
-| EFS (< 1 GB) | ~$0.30 |
-| NAT Gateway | ~$32 |
-| **Total** | **~$42/month** |
-
-💡 To reduce cost: run the Telegram bot on a $5/month VPS instead of Fargate, and skip the NAT Gateway by using Lambda with public subnets.
 
 ## Project Structure
 
 ```
 openclaw-market-intel/
-├── agents/                          # 9 OpenClaw agents
-│   ├── orchestrator/skills/         # Fleet launcher, score combiner, pick selector, formatter
-│   ├── fundamentals/skills/         # PE, earnings, analyst targets (yfinance)
-│   ├── sentiment/skills/            # Social sentiment, analyst recs (Finnhub)
-│   ├── macro/skills/                # Treasury yields, VIX, CPI (FRED)
-│   ├── news/skills/                 # Headline sentiment (Finnhub)
-│   ├── technical/skills/            # RSI, SMA, volume (yfinance)
-│   ├── premarket/skills/            # Futures, global indices (yfinance)
-│   ├── congress/skills/             # Politician trades (Capitol Trades)
-│   └── options_chain/skills/        # Contract ranking (yfinance)
-├── broker/                          # Alpaca client + order manager
-├── telegram_bot/                    # Bot listener, auth, command router
-├── lambda_handlers/                 # Morning analysis + EOD recap Lambdas
-├── shared_memory/                   # EFS-mounted shared state
-│   ├── config/watchlist.json        # 36-ticker watchlist by sector
-│   ├── config/horizon_state.json    # Trading mode state machine
-│   ├── weights/learned_weights.json # Self-adjusting agent weights
-│   ├── runs/                        # Per-run agent result files
-│   └── picks/                       # Pick history + trade log
-├── infra/cloudformation.yaml        # Full AWS infrastructure
-├── Dockerfile                       # Fargate container
-├── config.py                        # Credential validation
-├── tracker.py                       # Pick logging + EOD evaluation
-├── weight_adjuster.py               # Learning engine
-├── horizon_manager.py               # day_trade → swing_trade → long_term
-├── run_morning.py                   # Local morning analysis runner
-├── smoke_test.py                    # Quick 3-ticker test
-└── tests/                           # 381 unit + integration tests
+├── agents/
+│   ├── orchestrator/skills/    # Fleet launcher, score combiner, pick selector
+│   ├── fundamentals/skills/    # PE, earnings, analyst targets (yfinance)
+│   ├── sentiment/skills/       # Social sentiment, analyst recs (Finnhub)
+│   ├── macro/skills/           # Treasury yields, VIX, CPI (FRED)
+│   ├── news/skills/            # Finnhub + web_news_scraper (Reddit + CNBC RSS)
+│   ├── technical/skills/       # RSI, SMA, volume, candle analysis (yfinance)
+│   ├── premarket/skills/       # Futures, regime, trends (yfinance)
+│   ├── congress/skills/        # Politician trades (Capitol Trades)
+│   └── options_chain/skills/   # Contract ranking (yfinance)
+├── lambda_handlers/            # Morning analysis + EOD recap (AWS Lambda)
+├── shared_memory/              # EFS-mounted state (watchlist, weights, predictions)
+├── infra/cloudformation.yaml   # Full AWS stack (VPC, EFS, Lambda, EventBridge, SNS, SES)
+├── company_lookup.py           # Ticker → Company Name + Fortune 500 rank
+├── prediction_tracker.py       # Save predictions, compare next day, track accuracy
+├── thesis_writer.py            # Claude Sonnet 4.6 via Bedrock thesis generation
+├── email_formatter.py          # Clean paragraph-style HTML email
+├── notifier.py                 # SMS (SNS) + HTML email (SES)
+├── daily_movers.py             # S&P 500 scanner (2%+ movers → merge into watchlist)
+├── deploy.sh                   # Lambda packaging + deployment script
+└── tests/                      # Unit + integration tests
 ```
 
-## Watchlist (36 Tickers)
+## Watchlist
 
-| Sector | Tickers |
-|--------|---------|
-| Big Tech | AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA |
-| Semiconductors | AMD, AVGO, INTC, QCOM, MU, MRVL |
-| Software/Cloud | CRM, NFLX, ORCL, PLTR, SNOW, SHOP |
-| Fintech/Crypto | COIN, SOFI, SQ, HOOD |
-| Healthcare | LLY, UNH, MRNA |
-| Energy | XOM, CVX |
-| Consumer | NKE, SBUX, DIS |
-| ETFs | SPY, QQQ, IWM, DIA, ARKK |
+100 static tickers across 12 sectors + up to 100 daily movers from S&P 500 scanner (2%+ change). Total: ~170 tickers analyzed per run.
+
+| Sector | Count | Examples |
+|--------|-------|---------|
+| Mega Cap | 10 | AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, BRK-B, JPM, V |
+| Tech | 10 | CRM, ORCL, PLTR, SNOW, SHOP, ADBE, INTU, NOW, PANW, CRWD |
+| Semiconductors | 10 | AMD, AVGO, INTC, QCOM, MU, MRVL, LRCX, KLAC, AMAT, TXN |
+| Healthcare | 10 | LLY, UNH, JNJ, PFE, MRNA, ABBV, TMO, ABT, BMY, AMGN |
+| Consumer | 10 | NKE, SBUX, MCD, KO, PEP, PG, COST, WMT, HD, LOW |
+| ETFs | 10 | SPY, QQQ, IWM, DIA, ARKK, XLF, XLE, XLK, XLV, SOXX |
+| + Daily Movers | ~80 | Auto-scanned from S&P 500 (2%+ change yesterday) |
 
 ## License
 
