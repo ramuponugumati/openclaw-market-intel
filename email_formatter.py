@@ -190,19 +190,7 @@ def format_eod_email_html(recap_data: dict) -> str:
 <p style="margin:0 0 16px;font-size:13px;color:{GRAY};">{_today()}</p>
 </td></tr>""")
 
-        # P&L
-        broker = recap_data.get("broker_pnl", {})
-        pnl = _sf(broker.get("daily_pnl", 0))
-        equity = broker.get("equity", "N/A")
-        pnl_color = GREEN if pnl >= 0 else RED
-        pnl_sign = "+" if pnl >= 0 else ""
-
-        parts.append(f"""<tr><td style="padding:0 0 16px;">
-<p style="margin:0 0 6px;font-size:15px;font-weight:700;">💰 P&L</p>
-<p style="margin:0;font-size:14px;">Daily: <span style="color:{pnl_color};font-weight:700;">{pnl_sign}${abs(pnl):,.2f}</span> · Equity: ${equity}</p>
-</td></tr>""")
-
-        # Accuracy
+        # Accuracy summary
         oa = recap_data.get("overall_accuracy", "N/A")
         sa = recap_data.get("stock_accuracy", "N/A")
         opta = recap_data.get("options_accuracy", "N/A")
@@ -211,20 +199,94 @@ def format_eod_email_html(recap_data: dict) -> str:
             try: return f"{float(v):.1f}%"
             except: return str(v)
 
+        def _acc_color(v):
+            try:
+                v = float(v)
+                return GREEN if v >= 60 else RED if v < 40 else GRAY
+            except: return GRAY
+
         parts.append(f"""<tr><td style="padding:0 0 16px;">
-<p style="margin:0 0 6px;font-size:15px;font-weight:700;">🎯 Accuracy</p>
-<p style="margin:0;font-size:14px;">Overall: {_fmt(oa)} · Stocks: {_fmt(sa)} · Options: {_fmt(opta)}</p>
+<p style="margin:0 0 6px;font-size:15px;font-weight:700;">🎯 Today's Accuracy</p>
+<p style="margin:0;font-size:14px;">Overall: <span style="color:{_acc_color(oa)};font-weight:700;">{_fmt(oa)}</span> · Stocks: {_fmt(sa)} · Options: {_fmt(opta)}</p>
+</td></tr>""")
+
+        # Per-pick results — what we predicted vs what happened
+        eod_results = recap_data.get("eod_results", {})
+        options_results = eod_results.get("options", [])
+        stock_results = eod_results.get("stocks", [])
+
+        if options_results:
+            lines = []
+            for r in options_results:
+                tk = r.get("ticker", "?")
+                co = get_company_name(tk)
+                d = r.get("direction", "?")
+                op = r.get("open", 0)
+                cl = r.get("close", 0)
+                ch = r.get("change_pct", 0)
+                correct = r.get("correct", False)
+                pnl = r.get("est_pnl", 0)
+                icon = "✅" if correct else "❌"
+                ch_color = GREEN if ch > 0 else RED
+                pnl_color = GREEN if pnl > 0 else RED
+                lines.append(
+                    f'{icon} <span style="font-weight:600;">{tk}</span> ({co}) — '
+                    f'predicted {d}, opened ${op:.2f} → closed ${cl:.2f} '
+                    f'(<span style="color:{ch_color};">{ch:+.1f}%</span>)'
+                    f', est P&L: <span style="color:{pnl_color};">${pnl:+.0f}</span>'
+                )
+            options_html = "<br>".join(lines)
+            parts.append(f"""<tr><td style="padding:0 0 16px;">
+<p style="margin:0 0 6px;font-size:15px;font-weight:700;">🎯 Options Results</p>
+<p style="margin:0;font-size:13px;line-height:1.8;">{options_html}</p>
+</td></tr>""")
+
+        if stock_results:
+            lines = []
+            for r in stock_results:
+                tk = r.get("ticker", "?")
+                co = get_company_name(tk)
+                action = r.get("action", r.get("direction", "?"))
+                op = r.get("open", 0)
+                cl = r.get("close", 0)
+                ch = r.get("change_pct", 0)
+                correct = r.get("correct", False)
+                icon = "✅" if correct else "❌"
+                ch_color = GREEN if ch > 0 else RED
+                lines.append(
+                    f'{icon} <span style="font-weight:600;">{tk}</span> ({co}) — '
+                    f'predicted {action}, opened ${op:.2f} → closed ${cl:.2f} '
+                    f'(<span style="color:{ch_color};">{ch:+.1f}%</span>)'
+                )
+            stocks_html = "<br>".join(lines)
+            parts.append(f"""<tr><td style="padding:0 0 16px;">
+<p style="margin:0 0 6px;font-size:15px;font-weight:700;">📈 Stock Results</p>
+<p style="margin:0;font-size:13px;line-height:1.8;">{stocks_html}</p>
+</td></tr>""")
+
+        # Weekly trend (if we have history)
+        weekly_stats = recap_data.get("weekly_stats")
+        if weekly_stats:
+            days = weekly_stats.get("days_this_week", 0)
+            avg_acc = weekly_stats.get("avg_accuracy", 0)
+            best_pick = weekly_stats.get("best_pick", "")
+            worst_pick = weekly_stats.get("worst_pick", "")
+            parts.append(f"""<tr><td style="padding:0 0 16px;">
+<p style="margin:0 0 6px;font-size:15px;font-weight:700;">📅 Weekly Trend</p>
+<p style="margin:0;font-size:13px;line-height:1.6;">{days} days this week · Avg accuracy: <span style="color:{_acc_color(avg_acc)};font-weight:600;">{avg_acc:.0f}%</span></p>
+{"<p style='margin:4px 0;font-size:13px;'>Best pick: " + best_pick + "</p>" if best_pick else ""}
+{"<p style='margin:4px 0;font-size:13px;'>Worst miss: " + worst_pick + "</p>" if worst_pick else ""}
 </td></tr>""")
 
         # Learning status
         wu = recap_data.get("weight_update", {})
-        days = wu.get("days_evaluated", 0)
+        days_eval = wu.get("days_evaluated", 0)
         updated = wu.get("weights_updated", False)
         mode = recap_data.get("horizon_status", {}).get("current_mode", "day_trade")
 
         parts.append(f"""<tr><td style="padding:0 0 16px;">
 <p style="margin:0 0 6px;font-size:15px;font-weight:700;">🧠 Learning</p>
-<p style="margin:0;font-size:14px;">Days evaluated: {days} · Weights {"updated" if updated else "pending"} · Mode: {mode}</p>
+<p style="margin:0;font-size:13px;">Days evaluated: {days_eval} · Weights {"updated ✅" if updated else "pending (need ≥5 days)"} · Mode: {mode}</p>
 </td></tr>""")
 
         body = "\n".join(parts)

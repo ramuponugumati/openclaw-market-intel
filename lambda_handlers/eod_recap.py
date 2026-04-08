@@ -191,6 +191,54 @@ def _compute_accuracy_from_results(eod_results: dict) -> dict:
     }
 
 
+def _compute_weekly_stats() -> dict | None:
+    """Compute weekly accuracy trend from pick history."""
+    try:
+        from tracker import get_evaluated_days
+        evaluated = get_evaluated_days(max_days=7)
+        if not evaluated:
+            return None
+
+        days_this_week = len(evaluated)
+        accuracies = []
+        best_pick = ""
+        best_pct = -999
+        worst_pick = ""
+        worst_pct = 999
+
+        for entry in evaluated:
+            eod = entry.get("eod_results", {})
+            all_results = eod.get("options", []) + eod.get("stocks", [])
+            if not all_results:
+                continue
+            correct = sum(1 for r in all_results if r.get("correct"))
+            total = len(all_results)
+            if total > 0:
+                accuracies.append(correct / total * 100)
+
+            for r in all_results:
+                ch = r.get("change_pct", 0)
+                tk = r.get("ticker", "?")
+                if r.get("correct") and ch > best_pct:
+                    best_pct = ch
+                    best_pick = f"{tk} ({ch:+.1f}%)"
+                if not r.get("correct") and ch < worst_pct:
+                    worst_pct = ch
+                    worst_pick = f"{tk} (predicted BUY, went {ch:+.1f}%)"
+
+        avg_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
+
+        return {
+            "days_this_week": days_this_week,
+            "avg_accuracy": round(avg_accuracy, 1),
+            "best_pick": best_pick,
+            "worst_pick": worst_pick,
+        }
+    except Exception as exc:
+        logger.warning("Weekly stats computation failed: %s", exc)
+        return None
+
+
 def run_eod_recap() -> dict:
     """
     Execute the full EOD recap pipeline:
@@ -240,10 +288,13 @@ def run_eod_recap() -> dict:
     overall_ratio = accuracy.get("overall_accuracy_ratio", 0.0)
     horizon_result = check_transition(overall_ratio)
 
-    # Step 5: Format and send EOD recap via Telegram
+    # Step 5: Build weekly stats from history
+    weekly_stats = _compute_weekly_stats()
+
+    # Step 6: Format and send EOD recap via Telegram
     recap_data = {
         "broker_pnl": broker_pnl,
-        "trade_results": [],  # populated from broker positions if available
+        "eod_results": eod_results,
         "options_accuracy": accuracy["options_accuracy"],
         "stock_accuracy": accuracy["stock_accuracy"],
         "overall_accuracy": accuracy["overall_accuracy"],
@@ -252,6 +303,7 @@ def run_eod_recap() -> dict:
             "current_mode": horizon_result.get("current_mode", "day_trade"),
             "transition": horizon_result.get("transition"),
         },
+        "weekly_stats": weekly_stats,
     }
 
     message = format_eod_recap(recap_data)
