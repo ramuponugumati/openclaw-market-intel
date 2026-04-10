@@ -20,6 +20,10 @@ import sys
 import time
 from pathlib import Path
 
+# Configure logging for Lambda
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+logging.getLogger().setLevel(logging.INFO)
+
 # Ensure project root is on sys.path for imports
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
 if _PROJECT_ROOT not in sys.path:

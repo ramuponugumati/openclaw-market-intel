@@ -119,7 +119,7 @@ def format_morning_email_html(
 
         # Greeting
         parts.append(f"""<tr><td style="padding:24px 0 0;">
-<p style="margin:0 0 4px;font-size:20px;font-weight:700;">🦀 OpenClaw Morning Picks</p>
+<p style="margin:0 0 4px;font-size:20px;font-weight:700;">🎯 Smart Picks</p>
 <p style="margin:0 0 16px;font-size:13px;color:{GRAY};">{_today()}</p>
 </td></tr>""")
 
@@ -186,7 +186,7 @@ def format_eod_email_html(recap_data: dict) -> str:
         parts = []
 
         parts.append(f"""<tr><td style="padding:24px 0 0;">
-<p style="margin:0 0 4px;font-size:20px;font-weight:700;">🌙 OpenClaw EOD Recap</p>
+<p style="margin:0 0 4px;font-size:20px;font-weight:700;">📊 EOD Report Analysis</p>
 <p style="margin:0 0 16px;font-size:13px;color:{GRAY};">{_today()}</p>
 </td></tr>""")
 

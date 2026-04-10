@@ -207,7 +207,7 @@ def send_morning_alert(options_picks: list, stock_picks: list, movers: list | No
                 movers=movers,
                 prediction_eval=prediction_eval,
             )
-            ses_sent = send_ses_email("OpenClaw Morning Picks", html)
+            ses_sent = send_ses_email("Smart Picks — Morning Analysis", html)
 
             if not ses_sent:
                 # Fallback to SNS topic (plain text)
@@ -270,7 +270,7 @@ def send_eod_alert(recap_data: dict) -> None:
             from email_formatter import format_eod_email_html
 
             html = format_eod_email_html(recap_data)
-            ses_sent = send_ses_email("OpenClaw EOD Recap", html)
+            ses_sent = send_ses_email("EOD Report Analysis", html)
 
             if not ses_sent:
                 # Fallback to SNS topic (plain text)

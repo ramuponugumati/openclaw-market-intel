@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 
 # Default weights used when fewer than 5 days have been evaluated.
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "premarket": 0.25,
-    "macro": 0.20,
-    "technical": 0.20,
-    "news": 0.12,
+    "premarket": 0.30,
+    "news": 0.25,
+    "macro": 0.18,
+    "technical": 0.12,
     "sentiment": 0.08,
-    "fundamentals": 0.08,
-    "congress": 0.07,
+    "congress": 0.05,
+    "fundamentals": 0.02,
 }
 
 MIN_DAYS_FOR_LEARNED_WEIGHTS = 5

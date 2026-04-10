@@ -31,11 +31,13 @@ REDDIT_SUBS = {
     "stocks": "https://www.reddit.com/r/stocks/hot.json?limit=25",
 }
 
-# RSS feeds
+# RSS feeds + Yahoo Finance
 RSS_FEEDS = {
     "cnbc_top": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
     "cnbc_market": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258",
     "marketwatch": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+    "yahoo_finance": "https://finance.yahoo.com/news/rssindex",
+    "yahoo_market": "https://finance.yahoo.com/rss/topstories",
 }
 
 POSITIVE_WORDS = {
@@ -54,6 +56,9 @@ NEGATIVE_WORDS = {
     "investigation", "fraud", "bankruptcy", "default", "slump", "decline",
     "warning", "weak", "loss", "losses", "sell-off", "selloff", "tumble",
     "puts", "bag holding", "bagholding", "rug pull", "rugpull", "dump",
+    "trade war", "escalation", "retaliation", "embargo", "ban", "restrict",
+    "geopolitical", "tension", "conflict", "invasion", "missile", "nuclear",
+    "shutdown", "debt ceiling", "default risk", "inflation", "stagflation",
 }
 
 TICKER_PATTERNS = {
