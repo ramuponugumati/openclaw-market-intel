@@ -185,17 +185,8 @@ def send_morning_alert(options_picks: list, stock_picks: list, movers: list | No
     Never raises — logs errors and returns silently.
     """
     try:
-        # --- SMS: top 3 summary ---
-        top3 = (options_picks or [])[:3]
-        if not top3:
-            top3 = (stock_picks or [])[:3]
-
-        picks_str = ", ".join(
-            f"{p.get('ticker', '?')} {p.get('composite_score', 0):.1f} {p.get('direction', p.get('action', 'HOLD'))}"
-            for p in top3
-        )
-        sms = f"\U0001f980 OpenClaw: Top 3 \u2192 {picks_str}. Full report in email."
-        send_sms(sms)
+        # --- SMS disabled (SNS spending limit) ---
+        # send_sms(sms)
 
         # --- Email: HTML via SES (with SNS fallback) ---
         try:
@@ -263,7 +254,8 @@ def send_eod_alert(recap_data: dict) -> None:
 
         acc_str = f"{accuracy}%" if isinstance(accuracy, (int, float)) else str(accuracy)
         sms = f"\U0001f980 EOD: accuracy {acc_str}, P&L {pnl_str}. Details in email."
-        send_sms(sms)
+        # SMS disabled (SNS spending limit)
+        # send_sms(sms)
 
         # --- Email: HTML via SES (with SNS fallback) ---
         try:
